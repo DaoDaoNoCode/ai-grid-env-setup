@@ -1,0 +1,31 @@
+# Opens a PR when quay.io/rhoai/rhoai-fbc-fragment:rhoai-3.6 moves (renovate.json).
+# Needs repository secrets QUAY_USERNAME and QUAY_PASSWORD: a quay.io login that can read
+# quay.io/rhoai. Without them the run fails at the lookup and opens nothing.
+name: Renovate
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch: {}
+permissions: {}
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@f0f41e5f2e706165f6814b1d0f0d0e319de7d1d9 # v46.3.8
+        with:
+          configurationFile: renovate-config.js
+          token: ${{ secrets.GITHUB_TOKEN }}
+          additional-env-list: |
+            GITHUB_REPOSITORY
+            QUAY_USERNAME
+            QUAY_PASSWORD
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}

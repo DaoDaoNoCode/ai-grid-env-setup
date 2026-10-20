@@ -11,6 +11,11 @@ spec:
         metadata: { name: maas-db }
         spec:
           severity: high
+          # The hub's own spoke connects in-cluster; a remote spoke through Submariner's clusterset name.
+          # SCRAM bound to the TLS channel (SCRAM-SHA-256-PLUS): a server impersonating the database
+          # can't complete the login, and SCRAM never sends the password. Verifying the server's
+          # certificate instead (verify-full) would need the hub's database CA as a file in maas-api,
+          # whose Deployment the operator owns.
           # Hub-template fromSecret values arrive encrypted and decrypt on the spoke to base64 data,
           # so the URL is built on the spoke; the password never appears in clear in the Policy.
           object-templates:
@@ -25,7 +30,7 @@ spec:
                 metadata: { name: maas-db-config, namespace: redhat-ods-applications }
                 type: Opaque
                 stringData:
-                  DB_CONNECTION_URL: {{`'{{ printf "postgresql://%s:%s@maas-db-rw.maas-db.svc:5432/%s?sslmode=require" ("{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "dbname" hub}}" | base64dec) }}'`}}
+                  DB_CONNECTION_URL: {{`'{{ printf "postgresql://%s:%s@{{hub if eq .ManagedClusterName "local-cluster" hub}}maas-db-rw.maas-db.svc{{hub else hub}}maas-db-rw.maas-db.svc.clusterset.local{{hub end hub}}:5432/%s?sslmode=require&require_auth=scram-sha-256&channel_binding=require" ("{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "dbname" hub}}" | base64dec) }}'`}}
             - complianceType: musthave
               objectDefinition:
                 apiVersion: v1
@@ -33,7 +38,7 @@ spec:
                 metadata: { name: maas-db-config, namespace: redhat-ai-gateway-infra }
                 type: Opaque
                 stringData:
-                  DB_CONNECTION_URL: {{`'{{ printf "postgresql://%s:%s@maas-db-rw.maas-db.svc:5432/%s?sslmode=require" ("{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "dbname" hub}}" | base64dec) }}'`}}
+                  DB_CONNECTION_URL: {{`'{{ printf "postgresql://%s:%s@{{hub if eq .ManagedClusterName "local-cluster" hub}}maas-db-rw.maas-db.svc{{hub else hub}}maas-db-rw.maas-db.svc.clusterset.local{{hub end hub}}:5432/%s?sslmode=require&require_auth=scram-sha-256&channel_binding=require" ("{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "dbname" hub}}" | base64dec) }}'`}}
 ---
 apiVersion: policy.open-cluster-management.io/v1
 kind: PlacementBinding

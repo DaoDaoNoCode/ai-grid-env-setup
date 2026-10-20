@@ -99,6 +99,8 @@ before then (how long an extension lasts is set there; unverified).
 | 2026-10-19 | 7. Tenant portal sign-in (Task 7, Steps 5-6) | ALL PASS (06-tenant-portal) | **Pending** (Chris away) | D6 as re-decided: alice opens `https://maas.<apps domain>/maas-consumer-portal/`, is sent to hub Keycloak realm ai-grid, signs in (user name, then password), and the portal opens; the cluster's OpenShift login lists only `rhbk`. Policy `tenant-portal` delivers an oauth2-proxy (namespace `aigrid-portal-auth`), two HTTPRoutes on the MaaS gateway, and Authorino policies. The proxy uses the public tenant client `maas-cli` with PKCE, because MaaS accepts one client per tenant. Cross-origin cookie writes are refused (CSRF fix, RED→GREEN). The portal lists alice's models once Policy `maas-route` gives the MaaS gateway its host name (fixed the same night). Open gap: the portal's Kubernetes-backed calls (user, namespaces) are Unauthorized for Keycloak tokens. |
 | 2026-10-19 | 8. Rebuild and teardown (Task 8) | ALL PASS | **Pending** (one sitting at the end) | Unlabel drill passed (apps removed in 21 s, workloads kept, relabel restored in 31 s) after the placement-gated ApplicationSets fix. `make teardown` not run. Rebuild drill needs a fresh order. |
 | 2026-10-19 | 9. Provider console, as is (Task 9) | ALL PASS (07-console) | **Pending** | Built on the hub from pinned commits (console `ac80c25`, backend `dd513f9`, linux/amd64) into the internal registry; provider admins sign in with the cluster login (OAuthClient from `bootstrap/60-console.sh`); the backend uses its own Keycloak user in realm `ai-grid`. Clusters and Organizations answer 501 until the console and backend gRPC names match. Rebuild: bump the refs in `apps/console/manifests`, then `oc start-build` and `oc rollout restart`. |
+| 2026-10-20 | 10. Features from `ai-grid-tenant` (parity plan) | ALL PASS (145) | **Pending** | Renovate (PRs only, for the nightly catalog digest; needs repository secrets `QUAY_USERNAME` and `QUAY_PASSWORD`). ACM observability on the hub with Thanos in S4, and OpenShift AI metrics from spokes (`verify/08`). Submariner add-on with Globalnet on every spoke (`verify/09`; Degraded on one cluster, which has no peer). Limitador counters in password-protected Redis on ingress spokes (`verify/10`). maas-db with 3 instances, exported through Submariner, SCRAM-only logins, and a NetworkPolicy; read replicas for remote ingress spokes as groundwork (`verify/11`). `98-uninstall-spoke.sh` covers the new pieces but hasn't been rerun. |
+
 
 ## Sample model (fixture)
 
@@ -119,6 +121,22 @@ model plumbing (the grid-backend Service, NetworkPolicy allow-grid-provider) sta
   check the forwarded token against the cluster API, which doesn't trust Keycloak tokens, so these
   answer 401 or 500. Making the API trust Keycloak means changing cluster authentication, which D6
   rules out.
+- **A second cluster needs Submariner's AWS ports.** ACM can't prepare the AWS security groups
+  without an AWS credentials Secret (`SubmarinerClusterEnvironmentPrepared=False`), so open IPsec
+  (UDP 500 and 4500) and the Submariner ports between the clusters by hand, or give ACM credentials.
+- **The cross-cluster database login isn't certificate-verified.** A remote spoke's maas-api connects
+  to `maas-db-rw.maas-db.svc.clusterset.local` with `require_auth=scram-sha-256` and
+  `channel_binding=require`, so an impostor can't complete the login and never sees the password.
+  `verify-full` would need the hub's CA as a file in the operator-owned maas-api pod.
+- **maas-api can't use a read replica,** and its egress NetworkPolicy may block a remote spoke from
+  reaching the hub's Globalnet address. The replica pieces are groundwork until both change.
+- **Before the first remote ingress spoke, harden the replica groundwork** (security review,
+  2026-10-20; none of it runs on one cluster): Policy `maas-db-replication` copies the app login as
+  well as the replication certificate to each remote spoke (copy only what the replica needs); the
+  replica in `spokes/maas-db-replica` has no NetworkPolicy; and the hub's `maas-db-ingress` admits
+  all of Globalnet `242.0.0.0/8`, so any cluster in the set can reach port 5432 (narrow it to the
+  ingress spokes' Globalnet CIDRs).
+- **Metrics have one copy.** S4 runs one replica on one volume; losing the volume loses stored metrics.
 
 ## Fixes found along the way
 
@@ -153,7 +171,19 @@ Each is in git with a comment where it applies; the plan's ledger has the detail
 - opt-125m has no chat template; KServe renders the LLMInferenceService through Go templates, so the
   template is escaped with raw strings.
 
+- ACM observability: Thanos compact refuses raw retention under 40 hours, so `retentionResolutionRaw:
+  24h` (as on `ai-grid-tenant`) crash-loops `thanos-compact`; this repository keeps 5 days. On ACM
+  2.17 a user-workload `ScrapeConfig` reaches spokes only when `ClusterManagementAddOn
+  multicluster-observability-addon` lists it (Policy `rhai-metrics-hub`). This nightly's OpenShift AI
+  collector already uses port 8890 internally, so metrics are scraped from its exporter on 8889.
+- Setup Jobs that fill a Secret patch it through stdin: `oc apply` keeps a copy of the data in its
+  `last-applied-configuration` annotation.
+
 ## Known overrides of operator-owned objects
 
 - **Authorino Deployment** (`kuadrant-system/authorino`): Policy `authorino-service-ca` adds env `SSL_CERT_DIR` and, through the Authorino CR, a service-CA volume, so Authorino can call maas-api over HTTPS. The authorino operator owns the Deployment. If the Policy's compliance history flips between NonCompliant and Compliant (`kc host get policy ai-grid-policies.authorino-service-ca -n local-cluster -o yaml`, `status.details[].history`), the operator is reverting it.
 - **MaaS gateway** (`openshift-ingress`): Policy `maas-route` owns its parameters ConfigMap (ClusterIP Service, and a CA bundle from Policy `maas-gateway-ca` mounted over the proxy's CA file), sets the `https` listener's host name `maas.<apps domain>` (Argo CD ignores that field), requests a cert-manager certificate for `maas.<apps domain>` only (`maas-gw-public-tls`, from the issuer of the router's own certificate; a copy of the router's certificate where cert-manager didn't issue it), and owns the passthrough Route. A wildcard certificate here would let browsers reuse the gateway's HTTP/2 connection for Keycloak and the console, which the gateway answers with 404.
+- **Limitador** (`kuadrant-system/limitador`): Argo CD sets only `spec.storage` server-side, pointing it at
+  the spoke's Redis; Kuadrant owns the rest, and teardown never deletes it.
+- **ACM observability add-on** (`ClusterManagementAddOn multicluster-observability-addon`): Policy
+  `rhai-metrics-hub` adds the `rhai-metrics` ScrapeConfig to its configs with `musthave`.

@@ -20,7 +20,7 @@ gone() { # <timeout s> <kc args...>: wait until the object is gone
 mkdir -p out; inv=out/uninstall-$s.txt
 if kc $HOST get applications.argoproj.io platform-$s -n openshift-gitops >/dev/null 2>&1; then
   : > "$inv"
-  for a in tenant models grid-consumer grid-provider grid-operator platform; do
+  for a in tenant models grid-consumer grid-provider grid-operator platform limitador-redis maas-db-replica; do
     kc $HOST get applications.argoproj.io $a-$s -n openshift-gitops -o json 2>/dev/null \
       | jq -r --arg a $a '.status.resources[]? | [$a, .group // "", .kind, .namespace // "", .name] | join("|")' >> "$inv"
   done
@@ -54,6 +54,19 @@ for k in inferenceproviders gridsites gridnetworks; do
   for o in $(kc $s get $k.grid.praxis.fast -o name 2>/dev/null); do gone 120 "$o"; done
 done
 del_app grid-operator
+
+log "shared rate-limit Redis and the database replica (Kuadrant's Limitador stays for its operator)"
+# Redis first, while its operator still runs to clear its finalizer.
+del_app limitador-redis RedisReplication
+kc $s get redisreplications.redis.redis.opstreelabs.in limitador-redis -n limitador-redis >/dev/null 2>&1 && gone 300 redisreplications.redis.redis.opstreelabs.in limitador-redis -n limitador-redis
+del_app limitador-redis Subscription ServiceExport Secret NetworkPolicy OperatorGroup
+for c in $(kc $s get csv -n limitador-redis -o name 2>/dev/null); do kc $s delete $c -n limitador-redis --ignore-not-found; done
+kc $s delete ns limitador-redis --ignore-not-found --wait=false
+# Never on local-cluster: there namespace maas-db holds the hub's primary database.
+if [[ $s != local-cluster ]]; then del_app maas-db-replica Cluster; kc $s delete ns maas-db --ignore-not-found --wait=false; fi
+log "Submariner (the add-on removes its agent from $s)"
+kc $HOST delete managedclusteraddon submariner -n $s --ignore-not-found
+kc $HOST delete submarinerconfigs.submarineraddon.open-cluster-management.io submariner -n $s --ignore-not-found
 
 log "portal sign-in and the MaaS gateway objects Policies made"
 kc $s delete ns aigrid-portal-auth ai-tenants --ignore-not-found --wait=false

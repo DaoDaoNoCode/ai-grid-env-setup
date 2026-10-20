@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: ai-grid-maas-db-replica, namespace: openshift-gitops }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  generators:
+    # Remote ingress spokes only: the hub's own local-cluster has the primary.
+    - matrix:
+        generators:
+          - clusterDecisionResource:
+              configMapRef: acm-placement
+              labelSelector: { matchLabels: { cluster.open-cluster-management.io/placement: ai-grid-spokes } }
+              requeueAfterSeconds: 60
+          - clusters:
+              selector:
+                matchLabels: { apps.open-cluster-management.io/acm-cluster: "true", name: '{{`{{.clusterName}}`}}' }
+                matchExpressions:
+                  - { key: ai-grid/role, operator: In, values: [ingress, combined] }
+                  - { key: name, operator: NotIn, values: [local-cluster] }
+  template:
+    metadata: { name: 'maas-db-replica-{{`{{.name}}`}}' }
+    spec:
+      project: default
+      source: { repoURL: {{ required "gitRepo" .Values.gitRepo | quote }}, targetRevision: {{ required "gitRef" .Values.gitRef | quote }}, path: spokes/maas-db-replica }
+      destination: { server: '{{`{{.server}}`}}', namespace: maas-db }
+      syncPolicy:
+        automated: { selfHeal: true, prune: true }
+        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true, ServerSideApply=true]

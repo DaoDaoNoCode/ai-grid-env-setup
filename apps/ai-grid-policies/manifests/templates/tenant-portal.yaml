@@ -1,3 +1,5 @@
+{{- /* The Authorino rules and route header handling are adapted from lphiri/maas-portal-integration-poc
+       (MIT License, Copyright (c) 2026 lphiri; third-party/maas-portal-integration-poc.LICENSE). */ -}}
 apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
 metadata: { name: tenant-portal, namespace: ai-grid-policies }

@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: ai-grid-limitador-redis, namespace: openshift-gitops }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  generators:
+    {{- include "ai-grid-spokes.generators" (list "ingress" "combined") | nindent 4 }}
+  template:
+    metadata: { name: 'limitador-redis-{{`{{.name}}`}}' }
+    spec:
+      project: default
+      source: { repoURL: {{ required "gitRepo" .Values.gitRepo | quote }}, targetRevision: {{ required "gitRef" .Values.gitRef | quote }}, path: spokes/limitador-redis }
+      destination: { server: '{{`{{.server}}`}}', namespace: limitador-redis }
+      # The Kuadrant operator fills in the rest of Limitador's spec.
+      ignoreDifferences:
+        - { group: limitador.kuadrant.io, kind: Limitador, name: limitador, namespace: kuadrant-system, jsonPointers: [/spec/limits, /spec/metricLabelsDefault] }
+      syncPolicy:
+        automated: { selfHeal: true, prune: true }
+        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        syncOptions: [ServerSideApply=true, RespectIgnoreDifferences=true, SkipDryRunOnMissingResource=true]

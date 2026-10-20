@@ -12,3 +12,16 @@ dependencies:
   certManager: { enabled: false }
   # RHOAIENG-99507: ACM's observability add-on and the chart both install COO.
   clusterObservability: { enabled: false }
+  # Monitoring below collects metrics only, so its traces and logs back ends stay out.
+  tempo: { enabled: false }
+  loki: { enabled: false }
+services:
+  # OpenShift AI's metrics, for ACM observability on the hub (apps/observability): the hub's
+  # ScrapeConfig rhai-metrics scrapes the collector's own Prometheus exporter (port 8889), which
+  # Policy rhai-metrics opens to the spoke's ACM metrics collector. ACM's add-on installs the
+  # Cluster Observability Operator. (A second exporter on 8890 collides with this nightly's own.)
+  monitoring:
+    dsci:
+      managementState: Managed
+      metrics:
+        storage: { size: 20Gi }

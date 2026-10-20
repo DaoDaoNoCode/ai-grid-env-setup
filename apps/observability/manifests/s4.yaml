@@ -1,0 +1,62 @@
+# S4: Ceph RGW on a PVC, S3 API on 7480 inside the cluster only. Its web UI (5000) isn't exposed.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: s4-data
+  namespace: open-cluster-management-observability
+  # Same wave as its Deployment: gp3-csi binds only once a pod uses the claim.
+  annotations: { argocd.argoproj.io/sync-wave: "1" }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 50Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s4
+  namespace: open-cluster-management-observability
+  annotations: { argocd.argoproj.io/sync-wave: "1" }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: s4 } }
+  template:
+    metadata: { labels: { app: s4 } }
+    spec:
+      containers:
+        - name: s4
+          image: quay.io/rh-aiservices-bu/s4@sha256:25f29f0953e17627bc3f8fb04f6be51a00b10a2599d3c8ab3a2bdb76511ebc90 # 0.3.2-2
+          # The entrypoint creates the RGW user from these keys on first start.
+          envFrom: [{ secretRef: { name: s4-credentials } }]
+          ports:
+            - { name: s3-api, containerPort: 7480 }
+          readinessProbe: { tcpSocket: { port: 7480 }, periodSeconds: 10 }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "2", memory: 2Gi }
+          volumeMounts: [{ name: data, mountPath: /var/lib/ceph/radosgw }]
+      volumes: [{ name: data, persistentVolumeClaim: { claimName: s4-data } }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s4
+  namespace: open-cluster-management-observability
+  annotations: { argocd.argoproj.io/sync-wave: "1" }
+spec:
+  selector: { app: s4 }
+  ports: [{ name: s3-api, port: 7480, targetPort: 7480 }]
+---
+# Only this namespace (Thanos, the setup Jobs) reaches S4, and only its S3 port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: s4
+  namespace: open-cluster-management-observability
+  annotations: { argocd.argoproj.io/sync-wave: "1" }
+spec:
+  podSelector: { matchLabels: { app: s4 } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ podSelector: {} }]
+      ports: [{ port: 7480, protocol: TCP }]

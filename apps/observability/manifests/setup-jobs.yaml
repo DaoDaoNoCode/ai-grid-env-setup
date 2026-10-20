@@ -1,0 +1,125 @@
+# Two Jobs, rerun on every sync and safe to rerun:
+#   s4-credentials: once per hub, generates S4's keys and renders Thanos's thanos-object-storage from them.
+#   thanos-bucket:  creates bucket "thanos" in S4.
+# Keys travel through stdin and environment variables, never argv, logs, or a last-applied annotation.
+# Argo CD creates both Secrets empty; the Job may get and patch only those two.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: s4-credentials
+  namespace: open-cluster-management-observability
+  annotations: { argocd.argoproj.io/sync-wave: "-2" }
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: thanos-object-storage
+  namespace: open-cluster-management-observability
+  annotations: { argocd.argoproj.io/sync-wave: "-2" }
+type: Opaque
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observability-setup
+  namespace: open-cluster-management-observability
+  annotations: { argocd.argoproj.io/sync-wave: "-2" }
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: observability-setup
+  namespace: open-cluster-management-observability
+  annotations: { argocd.argoproj.io/sync-wave: "-2" }
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [s4-credentials, thanos-object-storage]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: observability-setup
+  namespace: open-cluster-management-observability
+  annotations: { argocd.argoproj.io/sync-wave: "-2" }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: observability-setup }
+subjects: [{ kind: ServiceAccount, name: observability-setup, namespace: open-cluster-management-observability }]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: s4-credentials
+  namespace: open-cluster-management-observability
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: observability-setup
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      containers:
+        - name: credentials
+          # The cluster's own oc, so it matches the cluster version.
+          image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              ns=open-cluster-management-observability
+              last=kubectl.kubernetes.io/last-applied-configuration
+              id=$(oc get secret s4-credentials -n $ns -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+              key=$(oc get secret s4-credentials -n $ns -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+              if [ -n "$id" ] && [ -n "$key" ]; then
+                echo "s4-credentials has keys; keeping them (S4 created its user from them)"
+              else
+                gen() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$1"; }
+                id=$(gen 20); key=$(gen 40)
+                printf '{"stringData":{"AWS_ACCESS_KEY_ID":"%s","AWS_SECRET_ACCESS_KEY":"%s"}}' "$id" "$key" \
+                  | oc patch secret s4-credentials -n $ns --type merge --patch-file /dev/stdin >/dev/null
+                echo "s4-credentials keys set"
+              fi
+              # Thanos's config from the stored keys (also repairs an emptied thanos-object-storage).
+              cfg=$(printf 'type: s3\nconfig:\n  bucket: thanos\n  endpoint: s4.%s.svc:7480\n  insecure: true\n  access_key: "%s"\n  secret_key: "%s"\n' "$ns" "$id" "$key" | base64 -w0)
+              printf '{"data":{"thanos.yaml":"%s"}}' "$cfg" \
+                | oc patch secret thanos-object-storage -n $ns --type merge --patch-file /dev/stdin >/dev/null
+              echo "thanos-object-storage rendered"
+              # Earlier versions applied these with oc apply, which kept a copy in this annotation.
+              oc annotate secret s4-credentials thanos-object-storage -n $ns $last- >/dev/null 2>&1 || true
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: thanos-bucket
+  namespace: open-cluster-management-observability
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: bucket
+          # S4's own image carries node and the AWS SDK.
+          image: quay.io/rh-aiservices-bu/s4@sha256:25f29f0953e17627bc3f8fb04f6be51a00b10a2599d3c8ab3a2bdb76511ebc90 # 0.3.2-2
+          workingDir: /opt/app-root/bin/s4/backend
+          envFrom: [{ secretRef: { name: s4-credentials } }]
+          command:
+            - node
+            - -e
+            - |
+              const { S3Client, CreateBucketCommand, HeadBucketCommand } = require('@aws-sdk/client-s3');
+              const s3 = new S3Client({ endpoint: 'http://s4:7480', region: 'us-east-1', forcePathStyle: true });
+              (async () => {
+                try { await s3.send(new HeadBucketCommand({ Bucket: 'thanos' })); console.log('bucket thanos exists'); }
+                catch { await s3.send(new CreateBucketCommand({ Bucket: 'thanos' })); console.log('bucket thanos created'); }
+              })().catch(e => { console.error(e.name, e.message); process.exit(1); });

@@ -1,0 +1,76 @@
+# Redis with Sentinel for Limitador's rate-limit counters, exported (Submariner) so every MaaS
+# gateway's Limitador can share them. Password-protected (auth.yaml), and only Limitador and Redis's
+# own pods reach it (NetworkPolicy below). Traffic from another cluster arrives from its Globalnet
+# address, which no rule here admits: sharing counters across clusters also needs an ipBlock rule
+# for the cluster set's Globalnet range (242.0.0.0/8).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: limitador-redis-isolation
+  namespace: limitador-redis
+  annotations: { argocd.argoproj.io/sync-wave: "2" }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ podSelector: {} }]
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kuadrant-system } }
+          podSelector: { matchLabels: { app: limitador } }
+---
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: RedisReplication
+metadata:
+  name: limitador-redis
+  namespace: limitador-redis
+  annotations: { argocd.argoproj.io/sync-wave: "3" }
+spec:
+  clusterSize: 3
+  livenessProbe:
+    exec: { command: [sh, -c, 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h 127.0.0.1 -p 6379 ping | grep -qx PONG'] }
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readinessProbe:
+    exec: { command: [sh, -c, 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h 127.0.0.1 -p 6379 ping | grep -qx PONG'] }
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  redisConfig:
+    dynamicConfig: ["maxmemory 6gb", "maxmemory-policy noeviction"]
+  kubernetesConfig:
+    image: registry.redhat.io/rhel9/redis-7@sha256:8e0c52a2f304473c1f62d1112e116e0e8d541ed9cbeea86f6ece3318146be105
+    imagePullPolicy: IfNotPresent
+    redisSecret: { name: limitador-redis-auth, key: password }
+    resources:
+      requests: { cpu: 500m, memory: 1Gi }
+      limits: { cpu: "4", memory: 8Gi }
+  storage:
+    volumeClaimTemplate:
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 10Gi } }
+  sentinel:
+    size: 3
+    image: registry.redhat.io/rhel9/redis-7@sha256:8e0c52a2f304473c1f62d1112e116e0e8d541ed9cbeea86f6ece3318146be105
+    imagePullPolicy: IfNotPresent
+    redisSecret: { name: limitador-redis-auth, key: password }
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 250m, memory: 128Mi }
+  podSecurityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+  securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] }, runAsNonRoot: true }
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector: { matchLabels: { app: limitador-redis, redis_setup_type: replication } }
+            topologyKey: kubernetes.io/hostname
+---
+apiVersion: multicluster.x-k8s.io/v1alpha1
+kind: ServiceExport
+metadata:
+  name: limitador-redis-master
+  namespace: limitador-redis
+  annotations: { argocd.argoproj.io/sync-wave: "4" }

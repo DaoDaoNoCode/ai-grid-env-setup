@@ -1,0 +1,85 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: rhai-metrics, namespace: ai-grid-policies }
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: rhai-metrics }
+        spec:
+          severity: low
+          # ACM's metrics collector (namespace open-cluster-management-agent-addon) federates OpenShift
+          # AI's collector on 8889 for the hub's ScrapeConfig rhai-metrics. NetworkPolicies add up, so
+          # this sits beside the operator's own policy without being reconciled away.
+          object-templates:
+            - complianceType: mustonlyhave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata: { name: allow-acm-rhai-metrics, namespace: redhat-ods-monitoring }
+                spec:
+                  podSelector:
+                    matchLabels:
+                      app.kubernetes.io/instance: redhat-ods-monitoring.data-science-collector
+                      app.kubernetes.io/component: opentelemetry-collector
+                  policyTypes: [Ingress]
+                  ingress:
+                    - from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: open-cluster-management-agent-addon } } }]
+                      ports: [{ port: 8889, protocol: TCP }]
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: rhai-metrics, namespace: ai-grid-policies }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-spokes }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: rhai-metrics }]
+---
+# On the hub (local-cluster): ACM's metrics add-on sends a ScrapeConfig to spokes only when its
+# ClusterManagementAddOn lists it. musthave adds the entry and leaves ACM's own entries alone.
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata: { name: ai-grid-hub, namespace: ai-grid-policies }
+spec:
+  clusterSets: [default]
+  predicates:
+    - requiredClusterSelector:
+        labelSelector: { matchLabels: { local-cluster: "true" } }
+  tolerations:
+    - { key: cluster.open-cluster-management.io/unreachable, operator: Exists }
+    - { key: cluster.open-cluster-management.io/unavailable, operator: Exists }
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: rhai-metrics-hub, namespace: ai-grid-policies }
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: rhai-metrics-hub }
+        spec:
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: addon.open-cluster-management.io/v1alpha1
+                kind: ClusterManagementAddOn
+                metadata: { name: multicluster-observability-addon }
+                spec:
+                  installStrategy:
+                    type: Placements
+                    placements:
+                      - name: global
+                        namespace: open-cluster-management-global-set
+                        configs:
+                          - { group: monitoring.rhobs, resource: scrapeconfigs, name: rhai-metrics, namespace: open-cluster-management-observability }
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: rhai-metrics-hub, namespace: ai-grid-policies }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-hub }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: rhai-metrics-hub }]

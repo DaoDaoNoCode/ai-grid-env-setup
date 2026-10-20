@@ -1,0 +1,104 @@
+# Redis and Sentinel require a password, generated on the spoke once and kept there. Argo CD creates
+# the two Secrets empty; Job limitador-redis-auth fills them, with rights to only those two:
+#   limitador-redis/limitador-redis-auth   the password (Redis and Sentinel)
+#   kuadrant-system/limitador-redis-url    Limitador's URL with it
+# Never in git, argv or logs; patched without a last-applied annotation, which would copy it.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: limitador-redis-auth
+  namespace: limitador-redis
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: limitador-redis-url
+  namespace: kuadrant-system
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+type: Opaque
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: limitador-redis-auth
+  namespace: limitador-redis
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: limitador-redis-auth
+  namespace: limitador-redis
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+rules: [{ apiGroups: [""], resources: [secrets], resourceNames: [limitador-redis-auth], verbs: [get, patch] }]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: limitador-redis-auth
+  namespace: limitador-redis
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: limitador-redis-auth }
+subjects: [{ kind: ServiceAccount, name: limitador-redis-auth, namespace: limitador-redis }]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: limitador-redis-auth
+  namespace: kuadrant-system
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+rules: [{ apiGroups: [""], resources: [secrets], resourceNames: [limitador-redis-url], verbs: [get, patch] }]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: limitador-redis-auth
+  namespace: kuadrant-system
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: limitador-redis-auth }
+subjects: [{ kind: ServiceAccount, name: limitador-redis-auth, namespace: limitador-redis }]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: limitador-redis-auth
+  namespace: limitador-redis
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: limitador-redis-auth
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      containers:
+        - name: auth
+          image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              last=kubectl.kubernetes.io/last-applied-configuration
+              pw=$(oc get secret limitador-redis-auth -n limitador-redis -o jsonpath='{.data.password}' | base64 -d)
+              if [ -n "$pw" ]; then
+                echo "limitador-redis-auth has a password; keeping it"
+              else
+                pw=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)
+                printf '{"stringData":{"password":"%s"}}' "$pw" \
+                  | oc patch secret limitador-redis-auth -n limitador-redis --type merge --patch-file /dev/stdin >/dev/null
+                echo "limitador-redis-auth password set"
+              fi
+              # This cluster's Redis. Another gateway's Limitador would use the exported name,
+              # limitador-redis-master.limitador-redis.svc.clusterset.local.
+              printf '{"stringData":{"URL":"redis://:%s@limitador-redis-master.limitador-redis.svc.cluster.local:6379"}}' "$pw" \
+                | oc patch secret limitador-redis-url -n kuadrant-system --type merge --patch-file /dev/stdin >/dev/null
+              echo "limitador-redis-url rendered"
+              # Earlier versions applied these with oc apply, which kept a copy in this annotation.
+              oc annotate secret limitador-redis-auth -n limitador-redis $last- >/dev/null 2>&1 || true
+              oc annotate secret limitador-redis-url -n kuadrant-system $last- >/dev/null 2>&1 || true

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Opens a PR when the nightly OpenShift AI catalog moves. Never merges: a bump is a deliberate change (docs/runbook.md).",
+  "enabledManagers": ["custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "catalogImage in the ai-grid-policies values",
+      "managerFilePatterns": ["/^apps/ai-grid-policies/manifests/values\\.yaml$/"],
+      "matchStrings": [
+        "catalogImage: (?<depName>quay\\.io/rhoai/rhoai-fbc-fragment):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchDepNames": ["quay.io/rhoai/rhoai-fbc-fragment"],
+      "commitMessageTopic": "nightly OpenShift AI catalog",
+      "automerge": false
+    }
+  ]
+}

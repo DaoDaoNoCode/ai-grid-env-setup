@@ -18,3 +18,16 @@ Nothing secret is stored in this repository.
 The `apps/*` layout and several apps follow, and may copy from,
 [kahowell/ai-grid-tenant](https://github.com/kahowell/ai-grid-tenant) by Kevin Howell, used with his
 permission (2026-10-19). Files copied from it say so at the top.
+
+The Submariner and Limitador Redis setup follows Pierangelo Di Pilato's work in that repository, and
+the replicated MaaS database follows Kevin Howell's.
+
+The MaaS Portal sign-in's Authorino rules and route header handling
+(`apps/ai-grid-policies/manifests/templates/tenant-portal.yaml`) are adapted from
+[lphiri/maas-portal-integration-poc](https://github.com/lphiri/maas-portal-integration-poc) by Lindani
+Phiri, under the MIT License (Copyright (c) 2026 lphiri); its license text is in
+[`third-party/maas-portal-integration-poc.LICENSE`](third-party/maas-portal-integration-poc.LICENSE).
+
+Thanos stores metrics in [S4](https://github.com/rh-aiservices-bu/s4) (Apache-2.0), set up after
+[rh-aiservices-bu/fraud-detection](https://github.com/rh-aiservices-bu/fraud-detection)'s
+`setup/setup-s3.yaml` (Apache-2.0).
