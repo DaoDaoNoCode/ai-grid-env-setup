@@ -1,0 +1,18 @@
+# The provider console (Task 9): the console repository's own manifests, with images built on the hub.
+metadata:
+  name: console
+  namespace: openshift-gitops
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ai-grid
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    retry:
+      limit: -1
+      backoff: { duration: 30s, factor: 2, maxDuration: 10m }
+    syncOptions:
+      - CreateNamespace=true

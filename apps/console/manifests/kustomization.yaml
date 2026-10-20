@@ -1,0 +1,28 @@
+# The console pod as the console repository defines it (kube-auth-proxy, BFF, ai-grid-backend), at its
+# pinned commit, with images from the BuildConfigs in builds.yaml (built from the same commits). Secrets ai-grid-provider-console-oauth
+# and ai-grid-backend-keycloak, and the OAuthClient, come from bootstrap/60-console.sh, not git.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ai-grid
+resources:
+  # Pinned, not main: the base includes ClusterRoleBindings that Argo CD applies with cluster-admin, so
+  # a change to what runs on the hub is a reviewed commit here. Bump it with builds.yaml's refs.
+  - https://github.com/ai-grid-cloud/ai-grid-provider-console//manifests/base?ref=ac80c25fb06f3818d248261c3a91cdf46b70052a
+  - builds.yaml
+# The builds' ImageStreams in the hub's internal registry, by tag (pulled on every start), so a rebuild
+# needs only a rollout restart and git never drifts.
+images:
+  - { name: quay.io/opendatahub/odh-kube-auth-proxy, digest: "sha256:1a5f6e220362aa2077026bb7e3091c38f80aac861fa060b08045e58e783d5bc5" }
+  - { name: quay.io/cfchase/ai-grid-provider-console, newName: image-registry.openshift-image-registry.svc:5000/ai-grid/ai-grid-provider-console, newTag: latest }
+  - { name: quay.io/ai-grid-cloud/ai-grid-backend, newName: image-registry.openshift-image-registry.svc:5000/ai-grid/ai-grid-backend, newTag: latest }
+patches:
+  - target: { kind: Deployment, name: ai-grid-provider-console }
+    patch: |
+      # Container 2 is ai-grid-backend. Its REST gateway and Swagger UI default to :8081 on every
+      # interface, unauthenticated; keep them on loopback like its gRPC port.
+      - op: test
+        path: /spec/template/spec/containers/2/name
+        value: ai-grid-backend
+      - op: add
+        path: /spec/template/spec/containers/2/args/-
+        value: --http-listen-address=127.0.0.1:8081
