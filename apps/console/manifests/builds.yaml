@@ -1,5 +1,5 @@
-# Images built on the hub into its internal registry until GitHub Actions publish them to
-# ghcr.io/ai-grid-cloud. Each builds a pinned commit (the console's matches kustomization.yaml). The
+# Fallback (component images/in-cluster): images built on the hub into its internal registry, for work
+# not yet published to ghcr.io/ai-grid-cloud. Each builds a pinned commit (the console's matches kustomization.yaml). The
 # nodes are linux/amd64, so the images are too. Rebuild after bumping a ref: oc start-build <name> -n ai-grid, then
 # oc rollout restart deploy/ai-grid-provider-console -n ai-grid.
 apiVersion: image.openshift.io/v1
@@ -37,3 +37,31 @@ spec:
   output: { to: { kind: ImageStreamTag, name: "ai-grid-backend:latest" } }
   resources: { requests: { cpu: "1", memory: 1Gi }, limits: { memory: 4Gi } }
   triggers: [{ type: ConfigChange }]
+---
+# Fallback for unmerged branches: binary builds from a local checkout into the same tags, nothing pushed.
+#   oc start-build ai-grid-provider-console-local -n ai-grid --from-dir=<console checkout> --follow
+#   oc start-build ai-grid-backend-local -n ai-grid --from-dir=<backend checkout> --follow
+#   oc rollout restart deploy/ai-grid-provider-console -n ai-grid
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata: { name: ai-grid-provider-console-local }
+spec:
+  source: { type: Binary, binary: {} }
+  strategy: { dockerStrategy: { dockerfilePath: Dockerfile } }
+  output: { to: { kind: ImageStreamTag, name: "ai-grid-provider-console:latest" } }
+  resources: { requests: { cpu: "1", memory: 2Gi }, limits: { memory: 6Gi } }
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata: { name: ai-grid-backend-local }
+spec:
+  source: { type: Binary, binary: {} }
+  strategy:
+    dockerStrategy:
+      dockerfilePath: Containerfile
+      buildArgs:
+        - { name: BUILDPLATFORM, value: linux/amd64 }
+        - { name: TARGETOS, value: linux }
+        - { name: TARGETARCH, value: amd64 }
+  output: { to: { kind: ImageStreamTag, name: "ai-grid-backend:latest" } }
+  resources: { requests: { cpu: "1", memory: 1Gi }, limits: { memory: 4Gi } }

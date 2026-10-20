@@ -29,4 +29,4 @@ for app in ai-grid-spokes ai-grid-policies; do
   kc $HOST delete applications.argoproj.io $app -n openshift-gitops --ignore-not-found
 done
 for s in $SITES; do kc $HOST delete managedcluster $s --ignore-not-found; done
-log "delivery stopped; installed software stays. Rebuild: make all"
+log "delivery stopped; installed software stays. Rebuild: make all, then Add to AI Grid in the console"

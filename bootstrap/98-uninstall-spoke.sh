@@ -104,4 +104,4 @@ log "namespaces"
 nss="redhat-ods-applications redhat-ods-monitoring redhat-ods-operator redhat-ai-gateway-infra models-as-a-service kuadrant-system aigrid-models aigrid-portal-auth ai-tenants"
 kc $s delete ns $nss --ignore-not-found --wait=false
 for n in $nss; do gone 600 ns $n; done
-log "spoke layer removed from $s. Provision it again: bash bootstrap/40-spoke.sh (or make spokes)"
+log "spoke layer removed from $s. Provision it again: Add to AI Grid in the console (dev shortcut: bash bootstrap/40-spoke.sh)"

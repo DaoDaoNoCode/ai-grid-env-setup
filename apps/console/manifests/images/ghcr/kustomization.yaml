@@ -1,0 +1,15 @@
+# Default image source: ghcr.io/ai-grid-cloud, the packages the repositories' GitHub Actions publish to
+# (console PR 32, backend PR 8; until they merge, images for PR heads are pushed there by hand).
+# Pin sha-<full commit>@<digest>: tags can be overwritten, so the digest is what's deployed, and the tag
+# says which commit it is. Never latest or pr-<N>. Bump: take the sha-<commit> tag CI published for the
+# merge commit and its digest (skopeo inspect docker://<image>:<tag> | jq -r .Digest), change both here, and move the base ref in ../../kustomization.yaml
+# when the console's manifests changed.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target: { kind: Deployment, name: ai-grid-provider-console }
+    patch: |
+      - { op: test, path: /spec/template/spec/containers/1/name, value: bff }
+      - { op: replace, path: /spec/template/spec/containers/1/image, value: "ghcr.io/ai-grid-cloud/ai-grid-provider-console:sha-0c13a62c11ddfe6c1739ae1d1d1054d341427873@sha256:12b3df6e2de521c8900cd935416762c60d837ab0ea1a57c5e0510bc5992bac6c" }
+      - { op: test, path: /spec/template/spec/containers/2/name, value: ai-grid-backend }
+      - { op: replace, path: /spec/template/spec/containers/2/image, value: "ghcr.io/ai-grid-cloud/ai-grid-provider-backend:sha-5a5c51e996199bb9003a1ac61b7061ab9db83af9@sha256:b9a4bf8b9ea3309bb5cdf7241a3c920fcfffb21dad653f0f142bbe05ca10d862" }

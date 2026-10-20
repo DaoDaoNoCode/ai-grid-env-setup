@@ -19,7 +19,7 @@ uat "no secrets on argv" "a script passes a token or password as a curl argument
   no_argv_secrets bootstrap/*.sh verify/*.sh hack/*.sh
 for s in $SPOKES; do
   r=$(role_of $s)
-  uat "$s labelled $r"        "run bootstrap/40-spoke.sh (stands in for the console's Enroll)" \
+  uat "$s labelled $r"        "add it from the console (Clusters, Add to AI Grid), or the dev shortcut bootstrap/40-spoke.sh" \
     bash -c "kc $h get managedcluster $s -o json | jq -e '.metadata.labels[\"ai-grid/enabled\"]==\"true\" and .metadata.labels[\"ai-grid/role\"]==\"$r\"'"
   uat "$s placed"             "Placement ai-grid-spokes: no ManagedClusterSetBinding 'default' in openshift-gitops, or the cluster isn't in set default" \
     bash -c "kc $h get placementdecisions -n openshift-gitops -l cluster.open-cluster-management.io/placement=ai-grid-spokes -o json | jq -e --arg s $s '[.items[].status.decisions[]?.clusterName] | index(\$s)'"

@@ -1,0 +1,39 @@
+# The backend's ClusterRole grants patch on ManagedClusters, which would reach spec (hubAcceptsClient
+# detaches a cluster), finalizers and every label, such as the cluster set. This policy limits the
+# backend's writes to what Add to AI Grid and Remove change: labels ai-grid/* and location, and
+# annotations ai-grid/*. Other users and controllers are unaffected.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: { name: ai-grid-provider-console-backend }
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - { apiGroups: [cluster.open-cluster-management.io], apiVersions: ["*"], resources: [managedclusters], operations: [UPDATE] }
+  matchConditions:
+    - { name: console-backend, expression: "request.userInfo.username == 'system:serviceaccount:ai-grid:ai-grid-provider-console'" }
+  variables:
+    - { name: nl, expression: "has(object.metadata.labels) ? object.metadata.labels : {}" }
+    - { name: ol, expression: "has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}" }
+    - { name: na, expression: "has(object.metadata.annotations) ? object.metadata.annotations : {}" }
+    - { name: oa, expression: "has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}" }
+  validations:
+    - expression: "object.spec == oldObject.spec"
+      message: "the console backend may not change a ManagedCluster's spec"
+    - expression: "(has(object.metadata.finalizers) ? object.metadata.finalizers : []) == (has(oldObject.metadata.finalizers) ? oldObject.metadata.finalizers : [])"
+      message: "the console backend may not change finalizers"
+    - expression: >-
+        variables.nl.all(k, k.startsWith('ai-grid/') || k == 'location' || (k in variables.ol && variables.ol[k] == variables.nl[k]))
+        && variables.ol.all(k, k.startsWith('ai-grid/') || k == 'location' || k in variables.nl)
+      message: "the console backend may change only ai-grid/* and location labels"
+    - expression: >-
+        variables.na.all(k, k.startsWith('ai-grid/') || (k in variables.oa && variables.oa[k] == variables.na[k]))
+        && variables.oa.all(k, k.startsWith('ai-grid/') || k in variables.na)
+      message: "the console backend may change only ai-grid/* annotations"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: { name: ai-grid-provider-console-backend }
+spec:
+  policyName: ai-grid-provider-console-backend
+  validationActions: [Deny]

@@ -442,7 +442,7 @@ opens but lists no models.
   membership from ACM placement `ai-grid-spokes`.
 
 **What it is:** the whole environment rebuilds from this repository with `make hub`, one commit,
-and `make spokes`. Taking a cluster out of the grid stops delivery without uninstalling anything.
+and `make spokes`, then **Add to AI Grid** in the console. Taking a cluster out of the grid stops delivery without uninstalling anything.
 
 ### Repeat the unlabel drill
 
@@ -495,14 +495,14 @@ lacks `preserveResourcesOnDeletion`.
 It's safe in principle because no Application has a resources finalizer, every ApplicationSet
 preserves resources on deletion, and ACM Policies don't remove what they created. So OpenShift AI,
 the grid, and the hub services keep running, no longer managed. Teardown hasn't run on this cluster,
-so that reasoning is untested here. Afterwards, `make all` brings delivery back. Whether to run it is
+so that reasoning is untested here. Afterwards, `make all` and Add to AI Grid in the console bring delivery back. Whether to run it is
 your call; don't run it during this walkthrough.
 
 ### The rebuild drill
 
 The rebuild drill needs a fresh demo.redhat.com order and the `build` branch merged into
 `ai-grid-cloud/ai-grid-env-setup` `main`. On the fresh order you run `make hub`, commit the new
-`hubSiteDigest` that `bootstrap/50-grid-hub-info.sh` prints, then run `make spokes verify`. It isn't
+`hubSiteDigest` that `bootstrap/50-grid-hub-info.sh` prints, then run `make spokes`, add `local-cluster` from the console, and run `make verify`. It isn't
 part of this sitting.
 
 **Questions:**

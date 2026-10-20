@@ -8,9 +8,10 @@ hub:
 	bash bootstrap/35-keycloak.sh
 	bash bootstrap/50-grid-hub-info.sh
 # On a new hub, commit the hubSiteDigest that 50-grid-hub-info.sh prints (D8) before this.
+# Prepares spokes but labels none: the provider adds each cluster from the console (Add to AI Grid).
+# Dev shortcut without the console: bash bootstrap/40-spoke.sh
 spokes:
 	bash bootstrap/10-pull-secret.sh
-	bash bootstrap/40-spoke.sh
 	bash bootstrap/36-portal-clients.sh
 all: hub spokes
 verify:
