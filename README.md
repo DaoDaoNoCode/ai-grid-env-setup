@@ -10,8 +10,25 @@ from the [odh-gitops](https://github.com/opendatahub-io/odh-gitops) chart.
 - `docs/runbook.md`: cluster facts, access, and the UAT log.
 - Sample model (fixture): `spokes/models/opt-125m` and `spokes/tenant/` (opt-125m, its MaaS model and the org1 subscription) exist only so `verify/06-tenant-e2e.sh` has a model to call; they're deleted once the provider console deploys models and creates subscriptions.
 
-Set `HOST_KUBECONFIG` to the hub's kubeconfig file in your shell before running anything.
-Nothing secret is stored in this repository.
+## Quick start
+
+On a demo.redhat.com OpenShift 4.21 or later cluster, with a cluster-admin login and a `quay.io/rhoai`
+podman login (details and timings in [the runbook](docs/runbook.md#build-rebuild-and-tear-down)):
+
+```bash
+export HOST_KUBECONFIG=<path to the hub's kubeconfig>
+bash hack/quay-env.sh        # once per machine: copies the quay.io/rhoai login into the git-ignored .env
+make hub                     # Argo CD builds the hub from this repository's main branch
+# commit the hubSiteDigest that bootstrap/50-grid-hub-info.sh prints (a new hub has a new grid CA)
+make spokes console          # pull secret, portal callbacks, the console's secrets
+```
+
+Then sign in to the provider console (Route `ai-grid-provider-console` in namespace `ai-grid`), open
+**Clusters**, and choose **Add to AI Grid** on `local-cluster` (role `combined`). ACM installs OpenShift
+AI, MaaS and the grid on it; when the console shows **Provisioned**, run `make verify`.
+
+To build from a fork or branch, set `GIT_REPO` and `GIT_REF` before `make hub`. Nothing secret is stored
+in this repository.
 
 ## Credits
 

@@ -1,0 +1,29 @@
+# Cheap checks that need no cluster: shell scripts lint clean, and every app renders the way Argo CD
+# renders it (Helm charts with the root ApplicationSet's gitRepo and gitRef; kustomize, including the
+# console's remote base).
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: shellcheck
+        run: shellcheck -x -S error env.sh bootstrap/*.sh verify/*.sh hack/*.sh
+      - name: render apps
+        run: |
+          set -euo pipefail
+          for d in apps/*/manifests spokes/*; do
+            if [[ -f $d/Chart.yaml ]]; then
+              grep -q '^dependencies:' "$d/Chart.yaml" && helm dependency build "$d" >/dev/null
+              helm template ci "$d" --set gitRepo=https://github.com/${{ github.repository }}.git,gitRef=${{ github.sha }} >/dev/null
+            elif [[ -f $d/kustomization.yaml ]]; then
+              kubectl kustomize "$d" >/dev/null
+            fi
+            echo "rendered $d"
+          done

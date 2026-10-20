@@ -40,7 +40,9 @@ metadata:
   # Not "keycloak": that Route belongs to the demo order's own Keycloak, which the cluster login uses.
   name: maas-keycloak
   namespace: keycloak
-  annotations: { argocd.argoproj.io/sync-wave: "2" }
+  # Keycloak trusts X-Forwarded-* (proxy headers xforwarded); the router replaces any a client sends,
+  # so a forged X-Forwarded-Host can't change issuer or redirect URLs before the hostname is pinned.
+  annotations: { argocd.argoproj.io/sync-wave: "2", haproxy.router.openshift.io/set-forwarded-headers: replace }
 spec:
   to: { kind: Service, name: maas-keycloak-service }
   port: { targetPort: 8080 }

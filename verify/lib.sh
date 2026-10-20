@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 source "$(dirname "${BASH_SOURCE[0]}")/../bootstrap/lib.sh"
 set +e
 FAILS=0

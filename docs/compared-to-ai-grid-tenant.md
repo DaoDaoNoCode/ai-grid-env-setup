@@ -6,7 +6,7 @@ configuration): `apps/<name>/` folders, a root ApplicationSet `apps`, and `gitop
 Argo CD. What differs is what the layout builds. This page explains why this repository exists,
 what the original cluster can't do, and what this repository adds.
 
-Compared on 2026-10-20: `ai-grid-tenant` `main` at `05aac4c` and this repository's `build`.
+Compared on 2026-10-20: `ai-grid-tenant` `main` at `05aac4c` and this repository's PR 1 branch.
 
 ## Why a separate deployment configuration
 

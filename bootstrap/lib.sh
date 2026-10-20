@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../env.sh"
 log() { printf '==> %s\n' "$*" >&2; }

@@ -40,6 +40,9 @@ uat "one keycloak operator"  "a second Keycloak operator was installed (MaaS's s
   bash -c "[ \$(kc $h get csv -A --no-headers | awk '\$2 ~ /^(rhbk-operator|keycloak-operator)\./' | wc -l) -eq 1 ]"
 uat "realm ai-grid discovery" "Route keycloak missing, or KeycloakRealmImport ai-grid failed: kc host get keycloakrealmimport ai-grid -n $KEYCLOAK_NS -o yaml" \
   bash -c "curl -fsS https://$kchost/realms/ai-grid/.well-known/openid-configuration | jq -e '.issuer == \"https://$kchost/realms/ai-grid\"'"
+uat "hub issuer ignores forged X-Forwarded-Host" "Route maas-keycloak lacks haproxy.router.openshift.io/set-forwarded-headers: replace, and the hostname isn't pinned" \
+  bash -c "kc $HOST get route maas-keycloak -n $KEYCLOAK_NS -o jsonpath='{.metadata.annotations.haproxy\\.router\\.openshift\\.io/set-forwarded-headers}' | grep -qx replace \
+    && curl -fsS -H 'X-Forwarded-Host: forged.invalid' https://$kchost/realms/ai-grid/.well-known/openid-configuration | jq -e '.issuer == \"https://$kchost/realms/ai-grid\"'"
 uat "hub tenant issuer"      "bootstrap/35-keycloak.sh didn't write ConfigMap ai-grid-hub-info" \
   bash -c "kc $h get configmap ai-grid-hub-info -n ai-grid-policies -o jsonpath='{.data.tenantIssuer}' | grep -q '/realms/ai-grid$'"
 claims() { local pw; pw=$(kc $h get secret ai-grid-test-users -n $KEYCLOAK_NS -o jsonpath="{.data.$1}" | base64 -d)

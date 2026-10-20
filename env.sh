@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by every bootstrap and verify script.
 export KUBEDIR="${KUBEDIR:-$HOME/.kube/aigrid}"
 # The hub. Scripts use its kubeconfig file's current context. First build:
@@ -22,14 +23,7 @@ export KEYCLOAK_NS=keycloak
 export GRID_NS=grid                                 # the grid's namespace on every spoke (gridNs in git)
 export MODEL_NAME=facebook-opt-125m                 # the fixture model's MaaS ID (spokes/models/opt-125m)
 export LABEL_ENABLED=ai-grid/enabled LABEL_ROLE=ai-grid/role LABEL_LOCATION=location
-# During the build Argo CD reads the fork's build branch (Chris, 2026-10-19); Task 11 switches to upstream main.
-export GIT_REPO="${GIT_REPO:-https://github.com/cfchase/ai-grid-env-setup.git}" GIT_REF="${GIT_REF:-build}"
-# Provider console (Task 9). Registry ghcr.io/ai-grid-cloud (Chris, 2026-10-17). Set the tags after Task 9, Step 2.
-export CONSOLE_REF="${CONSOLE_REF:-upstream/main}"   # git ref of ai-grid-cloud/ai-grid-provider-console
-export CONSOLE_IMAGE="${CONSOLE_IMAGE:-ghcr.io/ai-grid-cloud/ai-grid-provider-console:unset}"
-export BACKEND_IMAGE="${BACKEND_IMAGE:-ghcr.io/ai-grid-cloud/ai-grid-backend:unset}"
-# The backend commit to build (ai-grid-cloud/ai-grid-provider-backend). The console's go.mod no longer
-# names it, so it's pinned here. ff3f332 is backend PR 1 (2026-10-19); the console can't call it
-# until a proto change lands (Task 9, "On hold").
-export BACKEND_REF="${BACKEND_REF:-ff3f332}"
-export CONSOLE_KEYCLOAK_REALM=ai-grid               # the backend's default realm for organizations
+# The git source Argo CD builds the hub and spokes from. To try a branch, set both before make hub, e.g.
+# GIT_REPO=https://github.com/<you>/ai-grid-env-setup.git GIT_REF=<branch>.
+export GIT_REPO="${GIT_REPO:-https://github.com/ai-grid-cloud/ai-grid-env-setup.git}" GIT_REF="${GIT_REF:-main}"
+# Provider console images and commits are pinned in apps/console/manifests (runbook, Provider console).

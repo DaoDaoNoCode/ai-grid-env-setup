@@ -500,7 +500,7 @@ your call; don't run it during this walkthrough.
 
 ### The rebuild drill
 
-The rebuild drill needs a fresh demo.redhat.com order and the `build` branch merged into
+The rebuild drill needs a fresh demo.redhat.com order and PR 1 merged into
 `ai-grid-cloud/ai-grid-env-setup` `main`. On the fresh order you run `make hub`, commit the new
 `hubSiteDigest` that `bootstrap/50-grid-hub-info.sh` prints, then run `make spokes`, add `local-cluster` from the console, and run `make verify`. It isn't
 part of this sitting.
