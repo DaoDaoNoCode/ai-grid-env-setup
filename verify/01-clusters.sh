@@ -7,4 +7,10 @@ for c in $HOST $SITES; do
   uat "$c >=3 workers"      "too few schedulable nodes for OpenShift AI, ACM, and the model" bash -c "[ \$(kc $c get nodes -l node-role.kubernetes.io/worker= --no-headers | wc -l) -ge 3 ]"
   uat "$c gp3-csi default"  "no default AWS storage class: PVCs (maas-db, enrollment) would stay Pending" bash -c "kc $c get sc gp3-csi -o jsonpath='{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}' | grep -qx true"
 done
+for c in $SPOKES; do   # local-cluster runs on the hub's kubeconfig
+  uat "$c node has quay.io/rhoai auth" "Policy rhoai-pull-secret not enforced yet, or the fallback not run" \
+    on_node "$c" 'grep -q "quay.io/rhoai" /var/lib/kubelet/config.json'
+  uat "$c node mirrors rhoai" "Policy rhoai-nightly-prereqs hasn't created the IDMS, or nodes still rolling" \
+    on_node "$c" 'grep -q "quay.io/rhoai" /etc/containers/registries.conf'
+done
 summary

@@ -1,0 +1,44 @@
+profile: maas
+components:
+  dashboard:
+    dsc:
+      standard: { managementState: Managed }
+      maasPortal: { managementState: Managed }
+  kserve:
+    gateway:
+      spec:
+        listeners:
+          - name: https
+            port: 443
+            protocol: HTTPS
+            allowedRoutes:
+              namespaces:
+                from: Selector
+                selector:
+                  matchExpressions:
+                    - { key: kubernetes.io/metadata.name, operator: In, values: [openshift-ingress, aigrid-models] }
+  aigateway:
+    modelsAsAService:
+      gateway:
+        spec:
+          # Exposed by an OpenShift Route rather than an AWS load balancer: Policy maas-route creates
+          # the parameters ConfigMap (ClusterIP Service), the passthrough Route, the listener's
+          # certificate, and the listener host name maas.<apps domain>, looked up on the spoke, so
+          # no host name is in git.
+          infrastructure:
+            parametersRef: { group: "", kind: ConfigMap, name: maas-gateway-options }
+          listeners:
+            - name: https
+              port: 443
+              protocol: HTTPS
+              tls:
+                mode: Terminate
+                certificateRefs: [{ group: "", kind: Secret, name: maas-gw-public-tls }]
+              allowedRoutes:
+                namespaces:
+                  from: Selector
+                  selector:
+                    matchExpressions:
+                      # MaaS models in a grid are ExternalModels pointing at the grid gateway;
+                      # aigrid-portal-auth holds the MaaS Portal's sign-in routes (Policy tenant-portal).
+                      - { key: kubernetes.io/metadata.name, operator: In, values: [openshift-ingress, models-as-a-service, redhat-ai-gateway-infra, aigrid-portal-auth] }

@@ -7,6 +7,7 @@ from the [odh-gitops](https://github.com/opendatahub-io/odh-gitops) chart.
 - `env.sh`: every setting and pin, sourced by all scripts.
 - `bootstrap/`: idempotent scripts for the steps that carry secrets or run before Argo CD.
 - `verify/`: user-level checks; `make verify` runs them all.
+- Sample model (fixture): `spokes/models/opt-125m` and `spokes/tenant/` (opt-125m, its MaaS model and the org1 subscription) exist only so `verify/06-tenant-e2e.sh` has a model to call; they're deleted once the provider console deploys models and creates subscriptions.
 
 Set `HOST_KUBECONFIG` to the hub's kubeconfig file in your shell before running anything.
 Nothing secret is stored in this repository.

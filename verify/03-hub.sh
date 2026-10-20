@@ -51,6 +51,23 @@ uat "alice token: org1"      "the maas orgs mapper emits another shape (Step 2's
   bash -c "claims alice | jq -e '.\"https://redhat.com/maas/orgs\" | length == 1 and .[0].organization_name == \"org1\" and (.[0].organization_id | test(\"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$\"))'"
 uat "alice token: groups"    "the groups mapper emits full paths (/org1-group1) or alice isn't in org1-group1" \
   bash -c "claims alice | jq -e '.groups | index(\"org1-group1\")'"
+# The portal's sign-in proxy can't hand a refreshed session back to the browser (Authorino asks it
+# on the browser's behalf), so a token must last the whole portal session: 1 hour.
+uat "alice token lasts the portal session" "client maas-cli's access.token.lifespan isn't 3600: rerun bootstrap/36-portal-clients.sh" \
+  bash -c "claims alice | jq -e '.exp - .iat == 3600'"
 uat "dave token: no groups"  "dave was given a group; he must stay in no subscription" \
   bash -c "claims dave | jq -e '(.groups // []) | length == 0'"
+# Keycloak answers 400 both for an unknown client and for a bad redirect URI; only the page text differs.
+client_gone() { curl -s "https://$kchost/realms/ai-grid/protocol/openid-connect/auth?client_id=$1&response_type=code&scope=openid&redirect_uri=https%3A%2F%2Fx" | grep -q 'Client not found'; }
+export -f client_gone; export kchost
+uat "no maas-portal client"   "the confidential client from an earlier portal design is left: rerun bootstrap/36-portal-clients.sh" \
+  client_gone maas-portal
+for s in $SPOKES; do
+  [[ $(role_of $s) == inference ]] && continue
+  uat "portal redirect $s"   "client maas-cli rejects $s's portal callback: rerun bootstrap/36-portal-clients.sh after adding a spoke or a domain change" \
+    bash -c "d=\$(kc $s get ingresses.config cluster -o jsonpath='{.spec.domain}'); \
+      curl -s -o /dev/null -w '%{http_code}' \"https://$kchost/realms/ai-grid/protocol/openid-connect/auth?client_id=maas-cli&response_type=code&scope=openid&code_challenge_method=S256&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&redirect_uri=https%3A%2F%2Fmaas.\$d%2Foauth2%2Fcallback\" | grep -qx 200"
+  uat "no login client ocp-$s" "a cluster-login client from the old portal design is left: rerun bootstrap/36-portal-clients.sh" \
+    client_gone ocp-$s
+done
 summary

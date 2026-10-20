@@ -1,0 +1,23 @@
+{{- /* Spokes are ManagedClusters labelled ai-grid/enabled=true; the role label picks ingress or inference work.
+       Tolerations keep a briefly unreachable spoke selected, so a network blip removes nothing. */ -}}
+{{- range .Values.placementNamespaces }}
+{{- $ns := . }}
+{{- range $name, $roles := dict "ai-grid-spokes" (list) "ai-grid-ingress" (list "ingress" "combined") "ai-grid-inference" (list "inference" "combined") }}
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata: { name: {{ $name }}, namespace: {{ $ns }} }
+spec:
+  clusterSets: [default]
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchLabels: { ai-grid/enabled: "true" }
+          {{- if $roles }}
+          matchExpressions: [{ key: ai-grid/role, operator: In, values: [{{ join ", " $roles }}] }]
+          {{- end }}
+  tolerations:
+    - { key: cluster.open-cluster-management.io/unreachable, operator: Exists }
+    - { key: cluster.open-cluster-management.io/unavailable, operator: Exists }
+{{- end }}
+{{- end }}

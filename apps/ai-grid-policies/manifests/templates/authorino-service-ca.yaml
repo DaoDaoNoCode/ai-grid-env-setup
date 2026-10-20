@@ -1,0 +1,52 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: authorino-service-ca, namespace: ai-grid-policies }
+spec:
+  remediationAction: {{ .Values.authorinoCARemediation }}
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: authorino-service-ca }
+        spec:
+          severity: high
+          # Authorino calls maas-api over HTTPS (API-key validation, subscription lookup); without the
+          # OpenShift service CA every model call is denied ("cannot fetch metadata"). SSL_CERT_DIR adds
+          # the CA while keeping the system trust store, which Authorino needs for Keycloak's public keys.
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  name: aigrid-service-ca
+                  namespace: kuadrant-system
+                  annotations: { service.beta.openshift.io/inject-cabundle: "true" }
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operator.authorino.kuadrant.io/v1beta1
+                kind: Authorino
+                metadata: { name: authorino, namespace: kuadrant-system }
+                spec:
+                  volumes:
+                    items:
+                      - { name: service-ca, mountPath: /etc/ssl/certs/openshift-service-ca, configMaps: [aigrid-service-ca] }
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata: { name: authorino, namespace: kuadrant-system }
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: authorino
+                          env:
+                            - { name: SSL_CERT_DIR, value: "/etc/ssl/certs/openshift-service-ca:/etc/pki/tls/certs:/etc/ssl/certs" }
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: authorino-service-ca, namespace: ai-grid-policies }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-ingress }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: authorino-service-ca }]

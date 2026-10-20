@@ -1,0 +1,14 @@
+# Every spoke.
+skipCrdCheck: true            # render every CR; Argo CD retries until the operator's CRDs exist
+operator:
+  type: rhoai
+  rhoai:
+    olm:
+      source: rhoai-catalog-dev   # created by Policy rhoai-nightly-prereqs
+      channel: stable-3.6
+dependencies:
+  # demo.redhat.com orders pre-install cert-manager with their own OperatorGroup; a second one
+  # stops OLM in that namespace (Gaps 19). A spoke without cert-manager needs `auto` here.
+  certManager: { enabled: false }
+  # RHOAIENG-99507: ACM's observability add-on and the chart both install COO.
+  clusterObservability: { enabled: false }

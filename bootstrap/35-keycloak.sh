@@ -24,10 +24,12 @@ base="https://$kchost/admin/realms/$realm"
 # attributes: let admins set unmanaged ones such as maas_orgs (feeds the MaaS organization claim).
 api "$base/users/profile" | jq '.unmanagedAttributePolicy = "ADMIN_EDIT"' | api -X PUT "$base/users/profile" -d @- >/dev/null
 # The realm import runs once, and listing clientScopes replaced Keycloak's built-in ones, so make
-# sure scope maas carries sub and preferred_username (MaaS's user name) on an existing realm too.
+# sure scope maas carries sub, email, and preferred_username (MaaS's user name; email for the portal's
+# sign-in proxy) on an existing realm too.
 msid=$(api "$base/client-scopes" | jq -r '.[] | select(.name=="maas") | .id')
 have=$(api "$base/client-scopes/$msid/protocol-mappers/models" | jq -r '.[].name')
 grep -qx sub <<<"$have" || api -X POST "$base/client-scopes/$msid/protocol-mappers/models" -d '{"name":"sub","protocol":"openid-connect","protocolMapper":"oidc-sub-mapper","config":{"access.token.claim":"true","introspection.token.claim":"true"}}' >/dev/null
+grep -qx email <<<"$have" || api -X POST "$base/client-scopes/$msid/protocol-mappers/models" -d '{"name":"email","protocol":"openid-connect","protocolMapper":"oidc-usermodel-attribute-mapper","config":{"user.attribute":"email","claim.name":"email","jsonType.label":"String","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true"}}' >/dev/null
 grep -qx username <<<"$have" || api -X POST "$base/client-scopes/$msid/protocol-mappers/models" -d '{"name":"username","protocol":"openid-connect","protocolMapper":"oidc-usermodel-attribute-mapper","config":{"user.attribute":"username","claim.name":"preferred_username","jsonType.label":"String","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true"}}' >/dev/null
 kc $HOST get secret ai-grid-test-users -n $ns >/dev/null 2>&1 || kc $HOST create secret generic ai-grid-test-users -n $ns >/dev/null
 # user org group ("-" = no group, so in no subscription)

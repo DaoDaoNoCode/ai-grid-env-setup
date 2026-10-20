@@ -1,0 +1,42 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: maas-db, namespace: maas-db }
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: maas-db }
+        spec:
+          severity: high
+          # Hub-template fromSecret values arrive encrypted and decrypt on the spoke to base64 data,
+          # so the URL is built on the spoke; the password never appears in clear in the Policy.
+          object-templates:
+            - complianceType: musthave
+              objectDefinition: { apiVersion: v1, kind: Namespace, metadata: { name: redhat-ods-applications } }
+            - complianceType: musthave
+              objectDefinition: { apiVersion: v1, kind: Namespace, metadata: { name: redhat-ai-gateway-infra } }
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Secret
+                metadata: { name: maas-db-config, namespace: redhat-ods-applications }
+                type: Opaque
+                stringData:
+                  DB_CONNECTION_URL: {{`'{{ printf "postgresql://%s:%s@maas-db-rw.maas-db.svc:5432/%s?sslmode=require" ("{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "dbname" hub}}" | base64dec) }}'`}}
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Secret
+                metadata: { name: maas-db-config, namespace: redhat-ai-gateway-infra }
+                type: Opaque
+                stringData:
+                  DB_CONNECTION_URL: {{`'{{ printf "postgresql://%s:%s@maas-db-rw.maas-db.svc:5432/%s?sslmode=require" ("{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "dbname" hub}}" | base64dec) }}'`}}
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: maas-db, namespace: maas-db }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-ingress }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: maas-db }]

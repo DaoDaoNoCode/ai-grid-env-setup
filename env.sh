@@ -14,7 +14,13 @@ export SPOKE_LOCATIONS="${SPOKE_LOCATIONS:-local-cluster=us-east}"
 export ENV_FILE="${ENV_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.env}"
 # Versions and pins (the nightly catalog, odh-gitops, the grid) live in apps/*/manifests/values.yaml,
 # which Argo CD reads; the scripts below only read the few facts they need from git.
+# D4: policy (ACM Policy rhoai-pull-secret) or script (fallback bootstrap/10-pull-secret.sh), as set
+# in git, so the script and the Policy can't both act.
+export PULL_SECRET_MODE=$(awk '$1=="pullSecretMode:"{print $2}' "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/apps/ai-grid-policies/manifests/values.yaml")
 # Keycloak's namespace on the hub, as apps/keycloak/application.yaml sets it (change both together).
 export KEYCLOAK_NS=keycloak
+export GRID_NS=grid                                 # the grid's namespace on every spoke (gridNs in git)
+export MODEL_NAME=facebook-opt-125m                 # the fixture model's MaaS ID (spokes/models/opt-125m)
+export LABEL_ENABLED=ai-grid/enabled LABEL_ROLE=ai-grid/role LABEL_LOCATION=location
 # During the build Argo CD reads the fork's build branch (Chris, 2026-10-19); Task 11 switches to upstream main.
 export GIT_REPO="${GIT_REPO:-https://github.com/cfchase/ai-grid-env-setup.git}" GIT_REF="${GIT_REF:-build}"

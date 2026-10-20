@@ -1,0 +1,16 @@
+profile: rhaii
+components:
+  kserve:
+    dsc: { rawDeploymentServiceConfig: Headed }
+    gateway:
+      spec:
+        listeners:
+          - name: https
+            port: 443
+            protocol: HTTPS
+            allowedRoutes:
+              namespaces:
+                from: Selector
+                selector:
+                  matchExpressions:
+                    - { key: kubernetes.io/metadata.name, operator: In, values: [openshift-ingress, aigrid-models] }

@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: ai-grid-tenant-intent, namespace: openshift-gitops }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  generators:
+    {{- include "ai-grid-spokes.generators" (list "ingress" "combined") | nindent 4 }}
+  template:
+    metadata: { name: 'tenant-{{`{{.name}}`}}' }
+    spec:
+      project: default
+      source: { repoURL: {{ required "gitRepo" .Values.gitRepo | quote }}, targetRevision: {{ required "gitRef" .Values.gitRef | quote }}, path: spokes/tenant }
+      destination: { server: '{{`{{.server}}`}}', namespace: models-as-a-service }
+      syncPolicy:
+        automated: { selfHeal: true, prune: true }
+        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        syncOptions: [SkipDryRunOnMissingResource=true]

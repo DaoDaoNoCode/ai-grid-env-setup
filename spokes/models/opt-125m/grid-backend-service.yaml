@@ -1,0 +1,13 @@
+# The grid's provider gateway refuses in-cluster host names (they resolve to private addresses),
+# so it dials this Service at a fixed ClusterIP: the same pods as facebook-opt-125m-kserve-workload-svc,
+# at an address that stays the same on every rebuild. TLS still names the workload Service (sni).
+apiVersion: v1
+kind: Service
+metadata: { name: grid-backend-facebook-opt-125m, namespace: aigrid-models }
+spec:
+  clusterIP: 172.30.255.10
+  selector:
+    app.kubernetes.io/name: facebook-opt-125m
+    app.kubernetes.io/part-of: llminferenceservice
+    kserve.io/component: workload
+  ports: [{ name: https, port: 8000, targetPort: 8000, appProtocol: https }]

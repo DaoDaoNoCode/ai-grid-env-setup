@@ -1,0 +1,47 @@
+# Ingress spokes: the consumer gateway MaaS calls (ClusterIP grid-gateway, TLS on Service port 443 with
+# a service-CA certificate, behind MaaS's authentication; spokes/grid/consumer limits who may reach it). On a combined spoke its one
+# backend is this site's provider gateway over the grid's mutual TLS. A rendered consumer can't
+# name its own site as a backend, so its localSite is maas-edge. Remote sites' backends come with Task 11.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: ai-grid-grid-consumer, namespace: openshift-gitops }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  generators:
+    {{- include "ai-grid-spokes.generators" (list "combined") | nindent 4 }}
+  template:
+    metadata: { name: 'grid-consumer-{{`{{.name}}`}}' }
+    spec:
+      project: default
+      sources:
+        - repoURL: ghcr.io/praxis-proxy/charts
+          chart: praxis-gateway
+          targetRevision: "{{ .Values.gridVersion }}"
+          helm:
+            releaseName: grid-gateway
+            values: |
+              fullnameOverride: grid-gateway
+              image: { repository: ghcr.io/praxis-proxy/grid-gateway, tag: v{{ .Values.gridVersion }} }
+              gatewayConfig:
+                localSite: maas-edge
+                model: {{ .Values.modelName }}
+                auth: { mode: none }
+                backends:
+                  {{`{{.name}}`}}: { endpoint: "{{ .Values.providerIP }}:8443" }
+                # MaaS's gateway originates HTTPS to port 443: serve TLS with a service-CA certificate.
+                listenerTls: { enabled: true, existingSecret: grid-gateway-serving-tls }
+              tls: { existingSecret: grid-site-identity, caSecret: grid-ca }
+              service:
+                type: ClusterIP
+                port: 443
+                annotations: { service.beta.openshift.io/serving-cert-secret-name: grid-gateway-serving-tls }
+        - repoURL: {{ required "gitRepo" .Values.gitRepo | quote }}
+          targetRevision: {{ required "gitRef" .Values.gitRef | quote }}
+          path: spokes/grid/consumer
+      destination: { server: '{{`{{.server}}`}}', namespace: {{ .Values.gridNs }} }
+      syncPolicy:
+        automated: { selfHeal: true }
+        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        syncOptions: [CreateNamespace=true]

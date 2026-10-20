@@ -1,0 +1,32 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: ai-grid-ready, namespace: ai-grid-policies }
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: ai-grid-ready }
+        spec:
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: datasciencecluster.opendatahub.io/v3
+                kind: DataScienceCluster
+                metadata: { name: default-dsc }
+                status: { phase: Ready }
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata: { name: grid-operator, namespace: {{ .Values.gridNs }} }
+                status: { readyReplicas: 1 }
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: ai-grid-ready, namespace: ai-grid-policies }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-spokes }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: ai-grid-ready }]

@@ -23,6 +23,10 @@ spec:
         # carries sub and preferred_username, which MaaS reads as the user's name.
         protocolMappers:
           - { name: sub, protocol: openid-connect, protocolMapper: oidc-sub-mapper, config: { access.token.claim: "true", introspection.token.claim: "true" } }
+          - name: email
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-attribute-mapper
+            config: { user.attribute: email, claim.name: email, jsonType.label: String, id.token.claim: "true", access.token.claim: "true", userinfo.token.claim: "true" }
           - name: username
             protocol: openid-connect
             protocolMapper: oidc-usermodel-attribute-mapper
@@ -37,4 +41,7 @@ spec:
             config: { user.attribute: maas_orgs, claim.name: "https://redhat\\.com/maas/orgs", jsonType.label: JSON, id.token.claim: "true", access.token.claim: "true", userinfo.token.claim: "true" }
     defaultDefaultClientScopes: [maas]
     clients:
-      - { clientId: maas-cli, publicClient: true, directAccessGrantsEnabled: true, standardFlowEnabled: false, defaultClientScopes: [maas] }
+      # The tenant client: the CLI (password grant) and the MaaS Portal's sign-in proxy (browser flow
+      # with PKCE). bootstrap/36-portal-clients.sh adds each ingress spoke's portal callback.
+      - { clientId: maas-cli, publicClient: true, directAccessGrantsEnabled: true, standardFlowEnabled: true, defaultClientScopes: [maas],
+          attributes: { pkce.code.challenge.method: S256 } }

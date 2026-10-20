@@ -1,0 +1,346 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: tenant-portal, namespace: ai-grid-policies }
+spec:
+  remediationAction: {{ .Values.tenantPortalRemediation }}
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: tenant-portal }
+        spec:
+          severity: medium
+          # Tenants sign in to the MaaS Portal at https://maas.<apps domain>/maas-consumer-portal/
+          # with realm ai-grid on the hub's Keycloak. A sign-in proxy (oauth2-proxy) holds the
+          # session; Authorino checks it on every portal request and passes the user's token on.
+          # The cluster's own OpenShift login is never involved.
+          object-templates-raw: |
+{{`            {{- $domain := (lookup "config.openshift.io/v1" "Ingress" "" "cluster").spec.domain }}
+            {{- $s := lookup "v1" "Secret" "aigrid-portal-auth" "maas-portal-proxy" }}
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata: { name: aigrid-portal-auth }
+            # The session cookie's key, made once on the spoke and kept.
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Secret
+                metadata: { name: maas-portal-proxy, namespace: aigrid-portal-auth }
+                type: Opaque
+                data:
+                  cookieSecret: '{{ if $s }}{{ $s.data.cookieSecret }}{{ else }}{{ randAlphaNum 32 | base64enc }}{{ end }}'
+            # mustonlyhave: musthave adds list items but never removes them, so a dropped flag
+            # would stay in args.
+            - complianceType: mustonlyhave
+              objectDefinition:
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata: { name: maas-portal-proxy, namespace: aigrid-portal-auth }
+                spec:
+                  replicas: 1
+                  selector: { matchLabels: { app: maas-portal-proxy } }
+                  template:
+                    metadata: { labels: { app: maas-portal-proxy } }
+                    spec:
+                      containers:
+                        - name: oauth2-proxy
+                          image: `}}{{ .Values.portalProxyImage }}{{`
+                          args:
+                            - --http-address=0.0.0.0:4180
+                            - --metrics-address=0.0.0.0:9000
+                            - --reverse-proxy=true
+                            - --upstream=static://200
+                            - --provider=oidc
+                            - --oidc-issuer-url={{hub fromConfigMap "ai-grid-policies" "ai-grid-hub-info" "tenantIssuer" hub}}
+                            # MaaS's tenant client (public, so PKCE instead of a secret).
+                            - --client-id={{hub fromConfigMap "ai-grid-policies" "ai-grid-hub-info" "tenantClientId" hub}}
+                            - --code-challenge-method=S256
+                            - --scope=openid
+                            - --oidc-groups-claim=groups
+                            - --email-domain=*
+                            - --skip-provider-button
+                            - --pass-access-token=true
+                            - --set-xauthrequest=true
+                            - --redirect-url=https://maas.{{ $domain }}/oauth2/callback
+                            # __Host-: no Domain, Path=/, Secure, so no other host can set or shadow it.
+                            - --cookie-name=__Host-maas_portal_proxy
+                            # No refresh: Authorino calls the proxy, so a refreshed cookie would never
+                            # reach the browser. The session lasts as long as the client's tokens (1h,
+                            # bootstrap/36-portal-clients.sh); then the browser signs in again.
+                            - --cookie-expire=1h0m0s
+                            - --cookie-secure=true
+                            - --cookie-httponly=true
+                            - --cookie-samesite=lax
+                          env:
+                            # The proxy insists on a client secret; Keycloak ignores the one a public
+                            # client sends, so this is a placeholder, not a credential.
+                            - { name: OAUTH2_PROXY_CLIENT_SECRET, value: public-client }
+                            - name: OAUTH2_PROXY_COOKIE_SECRET
+                              valueFrom: { secretKeyRef: { name: maas-portal-proxy, key: cookieSecret } }
+                          ports:
+                            - { name: http, containerPort: 4180 }
+                          readinessProbe: { httpGet: { path: /ping, port: http } }
+                          livenessProbe: { httpGet: { path: /ping, port: http } }
+                          resources:
+                            requests: { cpu: 50m, memory: 64Mi }
+                            limits: { memory: 128Mi }
+                          securityContext:
+                            allowPrivilegeEscalation: false
+                            readOnlyRootFilesystem: true
+                            capabilities: { drop: [ALL] }
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Service
+                metadata: { name: maas-portal-proxy, namespace: aigrid-portal-auth }
+                spec:
+                  selector: { app: maas-portal-proxy }
+                  ports: [{ name: http, port: 4180, targetPort: http }]
+            # Only the sign-in steps are public (the anonymous AuthPolicy below overrides the
+            # gateway-wide maas-gateway-auth for this route); the proxy's /oauth2/auth and
+            # /oauth2/userinfo would hand a page's script the session's token.
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: HTTPRoute
+                metadata: { name: maas-portal-oauth2, namespace: aigrid-portal-auth }
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: HTTPRoute
+                metadata: { name: maas-portal-signin, namespace: aigrid-portal-auth }
+                spec:
+                  parentRefs: [{ name: maas-default-gateway, namespace: openshift-ingress, sectionName: https }]
+                  rules:
+                    - matches:
+                        - { path: { type: Exact, value: /oauth2/start } }
+                        - { path: { type: Exact, value: /oauth2/callback } }
+                        - { path: { type: Exact, value: /oauth2/sign_out } }
+                      backendRefs: [{ name: maas-portal-proxy, port: 4180 }]
+            # The portal itself, at the same path the OpenShift AI dashboard uses. Identity headers a
+            # client sends are dropped; only the user's token (x-forwarded-access-token, set by
+            # Authorino) reaches the portal.
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: HTTPRoute
+                metadata: { name: maas-portal, namespace: aigrid-portal-auth }
+                spec:
+                  parentRefs: [{ name: maas-default-gateway, namespace: openshift-ingress, sectionName: https }]
+                  rules:
+                    - matches: [{ path: { type: Exact, value: /maas-consumer-portal } }]
+                      filters:
+                        - type: RequestRedirect
+                          requestRedirect: { statusCode: 302, path: { type: ReplaceFullPath, replaceFullPath: /maas-consumer-portal/ } }
+                    - matches: [{ path: { type: PathPrefix, value: /maas-consumer-portal } }]
+                      backendRefs: [{ name: maas-portal, namespace: redhat-ods-applications, port: 8443 }]
+                      filters:
+                        - type: URLRewrite
+                          urlRewrite: { path: { type: ReplacePrefixMatch, replacePrefixMatch: / } }
+                        - type: RequestHeaderModifier
+                          requestHeaderModifier:
+                            remove: [x-auth-request-preferred-username, x-auth-request-groups, x-auth-request-access-token,
+                              x-forwarded-user, x-forwarded-email, x-forwarded-groups, x-forwarded-preferred-username,
+                              x-maas-username, x-maas-group, x-maas-orgid, x-maas-roles, x-maas-keyname,
+                              x-maas-subscription-rate-limit-id]
+                        - type: ResponseHeaderModifier
+                          responseHeaderModifier: { set: [{ name: Cache-Control, value: no-store }] }
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: gateway.networking.k8s.io/v1beta1
+                kind: ReferenceGrant
+                metadata: { name: aigrid-portal-auth, namespace: redhat-ods-applications }
+                spec:
+                  from: [{ group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: aigrid-portal-auth }]
+                  to: [{ group: "", kind: Service, name: maas-portal }]
+            # The portal serves TLS with a service-CA certificate, which the MaaS gateway trusts
+            # (Policy maas-gateway-ca): verify it rather than fall back to an unverified hop.
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: networking.istio.io/v1
+                kind: DestinationRule
+                metadata: { name: maas-portal-tls, namespace: openshift-ingress }
+                spec:
+                  host: maas-portal.redhat-ods-applications.svc.cluster.local
+                  trafficPolicy:
+                    tls: { mode: SIMPLE, sni: maas-portal.redhat-ods-applications.svc }
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: kuadrant.io/v1
+                kind: AuthPolicy
+                metadata: { name: maas-portal-oauth2-anonymous, namespace: aigrid-portal-auth }
+                spec:
+                  targetRef: { group: gateway.networking.k8s.io, kind: HTTPRoute, name: maas-portal-signin }
+                  rules:
+                    authentication:
+                      public-login: { anonymous: {} }
+            # A browser has no Authorization header: Authorino asks the proxy whether its session
+            # cookie is valid (/oauth2/auth) and, if so, passes the user's access token and MaaS
+            # identity headers to the portal; with no session it redirects to /oauth2/start. A
+            # caller with a bearer token from realm ai-grid's tenant client is checked directly.
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: kuadrant.io/v1
+                kind: AuthPolicy
+                metadata: { name: maas-portal-oidc, namespace: aigrid-portal-auth }
+                spec:
+                  targetRef: { group: gateway.networking.k8s.io, kind: HTTPRoute, name: maas-portal }
+                  rules:
+                    authentication:
+                      browser:
+                        anonymous: {}
+                        priority: 1
+                        when: [{ predicate: "!has(request.headers.authorization)" }]
+                      direct-jwt:
+                        priority: 0
+                        credentials: { authorizationHeader: { prefix: Bearer } }
+                        jwt:
+                          issuerUrl: '{{hub fromConfigMap "ai-grid-policies" "ai-grid-hub-info" "tenantIssuer" hub}}'
+                          ttl: 300
+                    authorization:
+                      session-and-identity:
+                        priority: 0
+                        opa:
+                          allValues: true
+                          rego: |
+                            allow = true
+
+                            login_location := sprintf("/oauth2/start?rd=%s", [urlquery.encode(input.context.request.http.path)])
+
+                            application_cookies := concat("; ", [entry |
+                              raw := split(object.get(input.context.request.http.headers, "cookie", ""), ";")[_]
+                              entry := trim_space(raw)
+                              entry != ""
+                              name := trim_space(split(entry, "=")[0])
+                              not startswith(name, "__Host-maas_portal_proxy")
+                            ])
+
+                            organization = result {
+                              orgs := object.get(organization_claims, "https://redhat.com/maas/orgs", [])
+                              count(orgs) == 1
+                              org := orgs[0]
+                              org_id := object.get(org, "organization_id", object.get(org, "tenant_id", ""))
+                              is_string(org_id)
+                              org_id != ""
+                              roles := object.get(org, "roles", [])
+                              is_array(roles)
+                              result := {"org_id": org_id, "roles_header": json.marshal(roles)}
+                            } else = {"org_id": "", "roles_header": "[]"}
+
+                            organization_claims = claims {
+                              not input.auth.identity.anonymous
+                              claims := input.auth.identity
+                            } else = claims {
+                              identity.authenticated
+                              [_, claims, _] := io.jwt.decode(identity.access_token)
+                            } else = {}
+
+                            identity = result {
+                              not input.auth.identity.anonymous
+                              claims := input.auth.identity
+                              usernames := [user |
+                                user := [object.get(claims, "preferred_username", ""), object.get(claims, "sub", "")][_]
+                                user != ""
+                              ]
+                              username := usernames[0]
+                              authorization := input.context.request.http.headers.authorization
+                              groups := {trim_space(group) |
+                                group := object.get(claims, "groups", [])[_]
+                                trim_space(group) != ""
+                                trim_space(group) != "system:authenticated"
+                              }
+                              result := {
+                                "authenticated": true,
+                                "authorization": authorization,
+                                "access_token": trim_prefix(authorization, "Bearer "),
+                                "username": username,
+                                "email": object.get(claims, "email", ""),
+                                "groups_header": json.marshal(array.concat(["system:authenticated"], sort(groups)))
+                              }
+                            } else = result {
+                              input.auth.identity.anonymous
+                              cookie := object.get(input.context.request.http.headers, "cookie", "")
+                              cookie != ""
+                              response := http.send({
+                                "method": "GET",
+                                "url": "http://maas-portal-proxy.aigrid-portal-auth.svc.cluster.local:4180/oauth2/auth",
+                                "headers": {"Cookie": cookie},
+                                "timeout": "2s",
+                                "cache": false,
+                                "enable_redirect": false,
+                                "raise_error": false
+                              })
+                              {200, 202}[response.status_code]
+                              token := object.get(response.headers, "x-auth-request-access-token", [""])[0]
+                              usernames := [user |
+                                user := [object.get(response.headers, "x-auth-request-preferred-username", [""])[0], object.get(response.headers, "x-auth-request-user", [""])[0]][_]
+                                user != ""
+                              ]
+                              username := usernames[0]
+                              token != ""
+                              groups := {trim_space(group) |
+                                group := split(object.get(response.headers, "x-auth-request-groups", [""])[0], ",")[_]
+                                trim_space(group) != ""
+                                trim_space(group) != "system:authenticated"
+                              }
+                              result := {
+                                "authenticated": true,
+                                "authorization": concat("", ["Bearer ", token]),
+                                "access_token": token,
+                                "username": username,
+                                "email": object.get(response.headers, "x-auth-request-email", [""])[0],
+                                "groups_header": json.marshal(array.concat(["system:authenticated"], sort(groups)))
+                              }
+                            } else = {"authenticated": false}
+                      client-bound:
+                        priority: 1
+                        when: [{ predicate: "has(request.headers.authorization)" }]
+                        patternMatching:
+                          patterns:
+                            - predicate: has(auth.identity.iss) && auth.identity.iss == '{{hub fromConfigMap "ai-grid-policies" "ai-grid-hub-info" "tenantIssuer" hub}}'
+                            - predicate: has(auth.identity.azp) && auth.identity.azp == '{{hub fromConfigMap "ai-grid-policies" "ai-grid-hub-info" "tenantClientId" hub}}'
+                      # The session cookie is SameSite=lax, so any page under the same apps domain
+                      # (another Route, a tenant workload) is same-site and can send it with a
+                      # write. A cookie-session write must come from the portal's own origin.
+                      same-origin-writes:
+                        priority: 1
+                        when: [{ predicate: "!has(request.headers.authorization)" }]
+                        patternMatching:
+                          patterns:
+                            - predicate: "request.method in ['GET', 'HEAD', 'OPTIONS'] || ('origin' in request.headers ? request.headers['origin'] == 'https://maas.{{ $domain }}' : ('sec-fetch-site' in request.headers && request.headers['sec-fetch-site'] == 'same-origin'))"
+                      require-auth:
+                        priority: 1
+                        patternMatching:
+                          patterns:
+                            - predicate: auth.authorization['session-and-identity'].identity.authenticated
+                    response:
+                      success:
+                        headers:
+                          authorization: { plain: { expression: "auth.authorization['session-and-identity'].identity.authorization" } }
+                          cookie: { plain: { expression: "auth.authorization['session-and-identity'].application_cookies" } }
+                          x-auth-request-email: { plain: { expression: "auth.authorization['session-and-identity'].identity.email" } }
+                          x-auth-request-user: { plain: { expression: "auth.authorization['session-and-identity'].identity.username" } }
+                          x-forwarded-access-token: { plain: { expression: "auth.authorization['session-and-identity'].identity.access_token" } }
+                          x-maas-group: { plain: { expression: "auth.authorization['session-and-identity'].identity.groups_header" } }
+                          x-maas-orgid: { plain: { expression: "auth.authorization['session-and-identity'].organization.org_id" } }
+                          x-maas-roles: { plain: { expression: "auth.authorization['session-and-identity'].organization.roles_header" } }
+                          x-maas-username: { plain: { expression: "auth.authorization['session-and-identity'].identity.username" } }
+                      unauthenticated:
+                        code: 401
+                        message: { value: Invalid bearer token }
+                      unauthorized:
+                        code: 302
+                        headers:
+                          Cache-Control: { value: no-store }
+                          Location:
+                            expression: "has(auth.authorization) && 'session-and-identity' in auth.authorization ? auth.authorization['session-and-identity'].login_location : '/oauth2/start?rd=%2Fmaas-consumer-portal%2F'"
+                        message: { value: Redirecting to login }`}}
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: tenant-portal, namespace: ai-grid-policies }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-ingress }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: tenant-portal }]

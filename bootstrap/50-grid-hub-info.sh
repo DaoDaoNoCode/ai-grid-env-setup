@@ -8,3 +8,5 @@ digest=$(kc $HOST get secret grid-site-identity -n grid -o jsonpath='{.data.tls\
   | openssl x509 -outform DER | openssl dgst -sha256 -r | cut -d' ' -f1)
 kc $HOST patch configmap ai-grid-hub-info -n ai-grid-policies --type merge \
   -p "{\"data\":{\"hubSiteDigest\":\"$digest\"}}"
+pinned=$(yq '.hubSiteDigest' "$(dirname "$0")/../apps/ai-grid-spokes/manifests/values.yaml")
+[[ $pinned == "$digest" ]] || log "commit this digest: set hubSiteDigest: \"$digest\" in apps/ai-grid-spokes/manifests/values.yaml (D8)"

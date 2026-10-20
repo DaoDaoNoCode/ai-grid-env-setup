@@ -1,0 +1,13 @@
+# The consumer gateway runs auth.mode none (the v0.2.0 image refuses api-key), so only the MaaS
+# gateway, which authenticates and meters every request, may reach it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: grid-gateway-from-maas, namespace: grid }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/instance: grid-gateway } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: openshift-ingress } }
+          podSelector: { matchLabels: { gateway.networking.k8s.io/gateway-name: maas-default-gateway } }
+      ports: [{ port: 8080, protocol: TCP }]
