@@ -9,17 +9,17 @@ e2e_login() {
   local pw tok
   pw=$(kc $HOST get secret ai-grid-test-users -n $KEYCLOAK_NS -o jsonpath="{.data.$TENANT_USER}" | base64 -d)
   # Secrets reach curl through a pipe or a file descriptor, never argv.
-  tok=$(printf %s "$pw" | curl -sk -d grant_type=password -d client_id=maas-cli -d scope=openid --data-urlencode "username=$TENANT_USER" \
+  tok=$(printf %s "$pw" | curl -s -d grant_type=password -d client_id=maas-cli -d scope=openid --data-urlencode "username=$TENANT_USER" \
     --data-urlencode password@- "https://$KC/realms/ai-grid/protocol/openid-connect/token" | jq -r .access_token); unset pw
   TOKEN=$tok
-  MODELS=$(curl -sk -H @<(bearer "$tok") "$MAAS/maas-api/v1/models")
-  KEY=$(curl -sk -X POST -H @<(bearer "$tok") -H 'Content-Type: application/json' \
+  MODELS=$(curl -s -H @<(bearer "$tok") "$MAAS/maas-api/v1/models")
+  KEY=$(curl -s -X POST -H @<(bearer "$tok") -H 'Content-Type: application/json' \
     -d '{"name":"aigrid-e2e","expiresIn":"1d"}' "$MAAS/maas-api/v1/api-keys" | jq -r .key)
   URL="$MAAS/models-as-a-service/$MODEL_NAME"
 }
 # MaaS routes by its own model ID (the MaaSModelRef name), not the upstream name facebook/opt-125m.
 e2e_complete() {
-  curl -sk -o out/e2e-completion.json -w '%{http_code}' -H @<(bearer "$KEY") -H 'Content-Type: application/json' \
+  curl -s -o out/e2e-completion.json -w '%{http_code}' -H @<(bearer "$KEY") -H 'Content-Type: application/json' \
     -d "{\"model\":\"$MODEL_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"max_tokens\":$1}" "$URL/v1/chat/completions"
 }
 [[ -n "${E2E_LIB:-}" ]] && return 0   # sourced as a library: define functions only
@@ -28,7 +28,7 @@ e2e_login
 export -f bearer; export TOKEN
 uat "keycloak token"  "Keycloak route or test user (Task 3's checks)" test -n "$TOKEN" -a "$TOKEN" != null
 uat "MaaS trusts the token" "AITenant oidc not set on $E2E_SPOKE (Policy tenant-oidc), or the issuer differs from Keycloak's" \
-  bash -c "curl -sk -o /dev/null -w '%{http_code}' -H @<(bearer \"\$TOKEN\") $MAAS/maas-api/v1/models | grep -qx 200"
+  bash -c "curl -s -o /dev/null -w '%{http_code}' -H @<(bearer \"\$TOKEN\") $MAAS/maas-api/v1/models | grep -qx 200"
 uat "model listed"    "token valid but no subscription matches the user's groups (Review focus 4)" \
   jq -e '.data[]|select(.id=="facebook/opt-125m" or .id=="'"$MODEL_NAME"'")' <<<"$MODELS"
 uat "model URL is public" "MaaS listed an in-cluster address: the gateway listener has no host name (Policy maas-route sets it on the spoke)" \

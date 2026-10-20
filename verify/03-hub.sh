@@ -40,6 +40,12 @@ uat "one keycloak operator"  "a second Keycloak operator was installed (MaaS's s
   bash -c "[ \$(kc $h get csv -A --no-headers | awk '\$2 ~ /^(rhbk-operator|keycloak-operator)\./' | wc -l) -eq 1 ]"
 uat "realm ai-grid discovery" "Route keycloak missing, or KeycloakRealmImport ai-grid failed: kc host get keycloakrealmimport ai-grid -n $KEYCLOAK_NS -o yaml" \
   bash -c "curl -fsS https://$kchost/realms/ai-grid/.well-known/openid-configuration | jq -e '.issuer == \"https://$kchost/realms/ai-grid\"'"
+# Our Keycloak answers HTTP only through its Route, and its database only to it. Probe from a namespace
+# with no business there (the repo server has bash and /dev/tcp).
+uat "hub Keycloak refuses other namespaces" "Keycloak maas-keycloak spec.networkPolicy.http missing or too wide (apps/keycloak)" \
+  bash -c "! kc $HOST exec -n openshift-gitops deploy/openshift-gitops-repo-server -- timeout 4 bash -c '</dev/tcp/maas-keycloak-service.$KEYCLOAK_NS.svc/8080' 2>/dev/null"
+uat "hub Keycloak database refuses other namespaces" "NetworkPolicy keycloak-db-ingress missing or too wide (apps/keycloak)" \
+  bash -c "! kc $HOST exec -n openshift-gitops deploy/openshift-gitops-repo-server -- timeout 4 bash -c '</dev/tcp/keycloak-db-rw.$KEYCLOAK_NS.svc/5432' 2>/dev/null"
 uat "hub issuer ignores forged X-Forwarded-Host" "Route maas-keycloak lacks haproxy.router.openshift.io/set-forwarded-headers: replace, and the hostname isn't pinned" \
   bash -c "kc $HOST get route maas-keycloak -n $KEYCLOAK_NS -o jsonpath='{.metadata.annotations.haproxy\\.router\\.openshift\\.io/set-forwarded-headers}' | grep -qx replace \
     && curl -fsS -H 'X-Forwarded-Host: forged.invalid' https://$kchost/realms/ai-grid/.well-known/openid-configuration | jq -e '.issuer == \"https://$kchost/realms/ai-grid\"'"

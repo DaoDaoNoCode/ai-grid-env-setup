@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Copy the deployer's quay.io login (from `podman login quay.io`) into .env as QUAY_USER and
-# QUAY_TOKEN. Prints the user name only, never the token.
+# QUAY_TOKEN. Prints the user name only, never the token. The login is copied to every spoke's pull
+# secret, so use a read-only robot account for quay.io/rhoai (podman login quay.io/rhoai with the
+# robot's name and token), not your personal login.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source ./env.sh

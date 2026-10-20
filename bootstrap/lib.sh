@@ -13,6 +13,13 @@ kcfg() {
 # The file's current context. Never print it: the name can contain the cluster's real host.
 kctx() { oc config current-context --kubeconfig "$(kcfg "$1")"; }
 kc() { local c=$1; shift; oc --kubeconfig "$(kcfg "$c")" --context "$(kctx "$c")" "$@"; }
+# wait_created <cluster> <kind/name> [namespace] [seconds]: until Argo CD has created the object.
+# Unlike oc wait --for=create, it also waits while the kind's CRD doesn't exist yet (fresh hub).
+wait_created() {
+  local c=$1 obj=$2 ns=${3:-} t=${4:-1800} i
+  for ((i = 0; i < t; i += 10)); do kc "$c" get "$obj" ${ns:+-n "$ns"} >/dev/null 2>&1 && return 0; sleep 10; done
+  die "$obj${ns:+ in $ns} not created within ${t}s: is its Argo CD app synced?"
+}
 hc() { local c=$1; shift; helm --kubeconfig "$(kcfg "$c")" --kube-context "$(kctx "$c")" "$@"; }
 # "a=x b=y" lookups for SPOKE_ROLES and SPOKE_LOCATIONS.
 kv() { tr ' ' '\n' <<<"$1" | awk -F= -v k="$2" '$1==k{print $2}'; }

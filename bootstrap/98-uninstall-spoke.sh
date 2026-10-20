@@ -17,7 +17,7 @@ gone() { # <timeout s> <kc args...>: wait until the object is gone
 }
 
 # 1. Inventory, before unlabelling removes the Applications; kept in out/ so a rerun can finish.
-mkdir -p out; inv=out/uninstall-$s.txt
+out="$(cd "$(dirname "$0")/.." && pwd)/out"; mkdir -p "$out"; inv=$out/uninstall-$s.txt
 if kc $HOST get applications.argoproj.io platform-$s -n openshift-gitops >/dev/null 2>&1; then
   : > "$inv"
   for a in tenant models grid-consumer grid-provider grid-operator platform limitador-redis maas-db-replica; do

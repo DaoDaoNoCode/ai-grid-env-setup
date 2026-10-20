@@ -13,7 +13,8 @@ from the [odh-gitops](https://github.com/opendatahub-io/odh-gitops) chart.
 ## Quick start
 
 On a demo.redhat.com OpenShift 4.21 or later cluster, with a cluster-admin login and a `quay.io/rhoai`
-podman login (details and timings in [the runbook](docs/runbook.md#build-rebuild-and-tear-down)):
+podman login from a read-only robot account, since the login is copied to every spoke's pull secret
+(details and timings in [the runbook](docs/runbook.md#build-rebuild-and-tear-down)):
 
 ```bash
 export HOST_KUBECONFIG=<path to the hub's kubeconfig>

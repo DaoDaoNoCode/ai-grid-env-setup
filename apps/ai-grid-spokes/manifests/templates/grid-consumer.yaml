@@ -23,7 +23,7 @@ spec:
             releaseName: grid-gateway
             values: |
               fullnameOverride: grid-gateway
-              image: { repository: ghcr.io/praxis-proxy/grid-gateway, tag: v{{ .Values.gridVersion }} }
+              image: { repository: ghcr.io/praxis-proxy/grid-gateway, tag: "v{{ .Values.gridVersion }}@{{ required "gridGatewayDigest" .Values.gridGatewayDigest }}" }
               gatewayConfig:
                 localSite: maas-edge
                 model: {{ .Values.modelName }}

@@ -22,6 +22,10 @@ spec:
       message: "the console backend may not change a ManagedCluster's spec"
     - expression: "(has(object.metadata.finalizers) ? object.metadata.finalizers : []) == (has(oldObject.metadata.finalizers) ? oldObject.metadata.finalizers : [])"
       message: "the console backend may not change finalizers"
+    # OwnerReferencesPermissionEnforcement already refuses this (the backend can't delete clusters);
+    # checked here too, so a later delete grant can't turn an owner reference into a deletion.
+    - expression: "(has(object.metadata.ownerReferences) ? object.metadata.ownerReferences : []) == (has(oldObject.metadata.ownerReferences) ? oldObject.metadata.ownerReferences : [])"
+      message: "the console backend may not change owner references"
     - expression: >-
         variables.nl.all(k, k.startsWith('ai-grid/') || k == 'location' || (k in variables.ol && variables.ol[k] == variables.nl[k]))
         && variables.ol.all(k, k.startsWith('ai-grid/') || k == 'location' || k in variables.nl)

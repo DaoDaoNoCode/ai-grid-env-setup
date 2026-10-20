@@ -13,6 +13,29 @@ spec:
     requests: { cpu: 100m, memory: 512Mi }
     limits: { memory: 1Gi }
 ---
+# Our Keycloak database only (the namespace also holds the demo order's Keycloak and its database):
+# Postgres from our Keycloak, its realm import Jobs and the instance itself; CloudNativePG's status
+# port from the operator; metrics from cluster monitoring.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-db-ingress
+  namespace: keycloak
+spec:
+  podSelector: { matchLabels: { cnpg.io/cluster: keycloak-db } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/instance: maas-keycloak } }
+        - podSelector: { matchLabels: { cnpg.io/cluster: keycloak-db } }
+      ports: [{ port: 5432, protocol: TCP }]
+    - from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: cnpg-system } } }]
+      ports: [{ port: 8000, protocol: TCP }]
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: openshift-monitoring } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: openshift-user-workload-monitoring } }
+      ports: [{ port: 9187, protocol: TCP }]
+---
 apiVersion: k8s.keycloak.org/v2alpha1
 kind: Keycloak
 metadata:
@@ -33,6 +56,12 @@ spec:
   proxy: { headers: xforwarded }
   http: { httpEnabled: true }
   ingress: { enabled: false }
+  # The operator's NetworkPolicy: HTTP only from the router (everything reaches Keycloak through its
+  # Route); clustering stays between its own pods. The namespace is shared with the demo order's own
+  # Keycloak, so nothing here selects that one.
+  networkPolicy:
+    enabled: true
+    http: [{ namespaceSelector: { matchLabels: { network.openshift.io/policy-group: ingress } } }]
 ---
 apiVersion: route.openshift.io/v1
 kind: Route

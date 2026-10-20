@@ -10,6 +10,12 @@ spec:
     realm: ai-grid
     enabled: true
     organizationsEnabled: true
+    # Slow password guessing: after 10 failures a user waits, up to 15 minutes; never locked for good.
+    bruteForceProtected: true
+    permanentLockout: false
+    failureFactor: 10
+    waitIncrementSeconds: 60
+    maxFailureWaitSeconds: 900
     organizations:
       - { name: org1, alias: org1, enabled: true, domains: [{ name: org1.example.com }] }
       - { name: org2, alias: org2, enabled: true, domains: [{ name: org2.example.com }] }

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"
 ns=$KEYCLOAK_NS realm=ai-grid
+wait_created $HOST keycloakrealmimport/ai-grid $ns 900
 kc $HOST wait keycloakrealmimport/ai-grid -n $ns --for=jsonpath='{.status.conditions[?(@.type=="Done")].status}'=True --timeout=15m
 kchost=$(kc $HOST get route maas-keycloak -n $ns -o jsonpath='{.spec.host}')
 # Pin Keycloak's hostname to the Route's host, so links and the issuer never come from request
@@ -20,6 +21,10 @@ tok=$(printf %s "$ap" | curl -fsS -d grant_type=password -d client_id=admin-cli 
 [[ -n $tok && $tok != null ]] || die "Keycloak admin login failed"
 api() { curl -fsS -H @<(printf 'Authorization: Bearer %s\n' "$tok") -H 'Content-Type: application/json' "$@"; }
 base="https://$kchost/admin/realms/$realm"
+# The realm import runs once, so apply brute-force protection (as in realm-ai-grid.yaml) to an
+# existing realm too.
+api "$base" | jq '.bruteForceProtected = true | .permanentLockout = false | .failureFactor = 10
+  | .waitIncrementSeconds = 60 | .maxFailureWaitSeconds = 900' | api -X PUT "$base" -d @- >/dev/null
 # The realm import doesn't apply a user profile, and the default profile drops unknown
 # attributes: let admins set unmanaged ones such as maas_orgs (feeds the MaaS organization claim).
 api "$base/users/profile" | jq '.unmanagedAttributePolicy = "ADMIN_EDIT"' | api -X PUT "$base/users/profile" -d @- >/dev/null

@@ -52,5 +52,6 @@ uat "backend can't read Policy copies" "the backend may read per-cluster Policie
 uat "backend may set only AI Grid labels" "ValidatingAdmissionPolicy ai-grid-provider-console-backend missing or not bound (apps/console/manifests)" \
   bash -c "! kc $HOST label managedcluster local-cluster ai-grid-verify/denied=true --dry-run=server --as=$sa >/dev/null 2>&1 \
     && ! kc $HOST patch managedcluster local-cluster --type=merge -p '{\"spec\":{\"leaseDurationSeconds\":61}}' --dry-run=server --as=$sa >/dev/null 2>&1 \
+    && ! kc $HOST patch managedcluster local-cluster --type=merge -p '{\"metadata\":{\"ownerReferences\":[{\"apiVersion\":\"v1\",\"kind\":\"Namespace\",\"name\":\"gone\",\"uid\":\"00000000-0000-0000-0000-000000000000\"}]}}' --dry-run=server --as=$sa >/dev/null 2>&1 \
     && kc $HOST label managedcluster local-cluster ai-grid/verify=true --dry-run=server --as=$sa >/dev/null"
 summary

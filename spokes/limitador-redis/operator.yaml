@@ -24,4 +24,71 @@ spec:
   sourceNamespace: openshift-marketplace
   name: redis-operator
   channel: stable
-  installPlanApproval: Automatic
+  # A community operator: install this exact version, and upgrade only when a commit moves
+  # startingCSV. Job redis-operator-approve approves the InstallPlan for this CSV and no other.
+  startingCSV: redis-operator.v0.25.0
+  installPlanApproval: Manual
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redis-operator-approve
+  namespace: limitador-redis
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: redis-operator-approve
+  namespace: limitador-redis
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+rules:
+  - { apiGroups: [operators.coreos.com], resources: [subscriptions], resourceNames: [redis-operator], verbs: [get] }
+  - { apiGroups: [operators.coreos.com], resources: [installplans], verbs: [get, list, patch] }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: redis-operator-approve
+  namespace: limitador-redis
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: redis-operator-approve }
+subjects: [{ kind: ServiceAccount, name: redis-operator-approve, namespace: limitador-redis }]
+---
+# Approves the InstallPlan that installs the Subscription's startingCSV, and nothing newer.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redis-operator-approve
+  namespace: limitador-redis
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: redis-operator-approve
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      containers:
+        - name: approve
+          image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              want=$(oc get subscriptions.operators.coreos.com redis-operator -n limitador-redis -o jsonpath='{.spec.startingCSV}')
+              for _ in $(seq 1 60); do
+                # name approved ["csv",...]: approve only a plan whose sole CSV is the pinned one.
+                while read -r name approved csvs; do
+                  [ "$csvs" = "[\"$want\"]" ] || continue
+                  if [ "$approved" = true ]; then echo "InstallPlan $name for $want approved"; exit 0; fi
+                  oc patch installplan "$name" -n limitador-redis --type merge -p '{"spec":{"approved":true}}' >/dev/null
+                  echo "approved $name for $want"; exit 0
+                done < <(oc get installplans -n limitador-redis -o jsonpath='{range .items[*]}{.metadata.name} {.spec.approved} {.spec.clusterServiceVersionNames}{"\n"}{end}')
+                sleep 10
+              done
+              echo "no InstallPlan for $want within 10 minutes"; exit 1
