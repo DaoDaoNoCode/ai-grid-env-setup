@@ -1,0 +1,20 @@
+# Sourced by every bootstrap and verify script.
+export KUBEDIR="${KUBEDIR:-$HOME/.kube/aigrid}"
+# The hub. Scripts use its kubeconfig file's current context. First build:
+# HOST_KUBECONFIG=<workspace>/.config/aio/kubeconfig (passed by path only; set outside git).
+export HOST=host
+export HOST_KUBECONFIG="${HOST_KUBECONFIG:-$KUBEDIR/host}"
+# Spokes: ManagedCluster names that get AI Grid. local-cluster is the hub itself (D1, 2026-10-19).
+# A remote spoke's kubeconfig is $KUBEDIR/<name>, used to import it (Task 11) and by its verify checks.
+export SPOKES="${SPOKES:-local-cluster}"
+export SPOKE_ROLES="${SPOKE_ROLES:-local-cluster=combined}"       # ingress | inference | combined
+export SPOKE_LOCATIONS="${SPOKE_LOCATIONS:-local-cluster=us-east}"
+# The deployer's quay.io/rhoai login (QUAY_USER, QUAY_TOKEN), git-ignored, written by hack/quay-env.sh
+# (Task 2). Read only by bootstrap/25-hub-secrets.sh and the fallback bootstrap/10-pull-secret.sh (Task 5).
+export ENV_FILE="${ENV_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.env}"
+# Versions and pins (the nightly catalog, odh-gitops, the grid) live in apps/*/manifests/values.yaml,
+# which Argo CD reads; the scripts below only read the few facts they need from git.
+# Keycloak's namespace on the hub, as apps/keycloak/application.yaml sets it (change both together).
+export KEYCLOAK_NS=keycloak
+# During the build Argo CD reads the fork's build branch (Chris, 2026-10-19); Task 11 switches to upstream main.
+export GIT_REPO="${GIT_REPO:-https://github.com/cfchase/ai-grid-env-setup.git}" GIT_REF="${GIT_REF:-build}"

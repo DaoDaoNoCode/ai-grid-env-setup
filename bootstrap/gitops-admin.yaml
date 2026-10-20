@@ -1,0 +1,8 @@
+# The application controller installs operators, CRDs, and cluster-scoped Policies on the hub.
+# Anyone who can push to the branch Argo CD reads is therefore cluster-admin on the hub (Task 8: AppProjects).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: openshift-gitops-admin }
+subjects:
+  - { kind: ServiceAccount, name: openshift-gitops-argocd-application-controller, namespace: openshift-gitops }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin }

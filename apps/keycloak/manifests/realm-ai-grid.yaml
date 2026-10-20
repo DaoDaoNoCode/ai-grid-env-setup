@@ -1,0 +1,40 @@
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakRealmImport
+metadata:
+  name: ai-grid
+  namespace: keycloak
+  annotations: { argocd.argoproj.io/sync-wave: "3" }
+spec:
+  keycloakCRName: maas-keycloak
+  realm:
+    realm: ai-grid
+    enabled: true
+    organizationsEnabled: true
+    organizations:
+      - { name: org1, alias: org1, enabled: true, domains: [{ name: org1.example.com }] }
+      - { name: org2, alias: org2, enabled: true, domains: [{ name: org2.example.com }] }
+    groups:
+      - { name: org1-group1 }
+      - { name: org2-group1 }
+    clientScopes:
+      - name: maas
+        protocol: openid-connect
+        # Listing clientScopes replaces Keycloak's built-in ones (basic, profile), so this scope also
+        # carries sub and preferred_username, which MaaS reads as the user's name.
+        protocolMappers:
+          - { name: sub, protocol: openid-connect, protocolMapper: oidc-sub-mapper, config: { access.token.claim: "true", introspection.token.claim: "true" } }
+          - name: username
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-attribute-mapper
+            config: { user.attribute: username, claim.name: preferred_username, jsonType.label: String, id.token.claim: "true", access.token.claim: "true", userinfo.token.claim: "true" }
+          - name: groups
+            protocol: openid-connect
+            protocolMapper: oidc-group-membership-mapper
+            config: { claim.name: groups, full.path: "false", id.token.claim: "true", access.token.claim: "true", userinfo.token.claim: "true" }
+          - name: maas-orgs
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-attribute-mapper
+            config: { user.attribute: maas_orgs, claim.name: "https://redhat\\.com/maas/orgs", jsonType.label: JSON, id.token.claim: "true", access.token.claim: "true", userinfo.token.claim: "true" }
+    defaultDefaultClientScopes: [maas]
+    clients:
+      - { clientId: maas-cli, publicClient: true, directAccessGrantsEnabled: true, standardFlowEnabled: false, defaultClientScopes: [maas] }

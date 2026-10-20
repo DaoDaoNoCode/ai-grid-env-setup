@@ -1,0 +1,41 @@
+# The root: one Argo CD Application per apps/*/application.yaml.
+# bootstrap/00-gitops.sh fills in GIT_REPO and GIT_REF from env.sh.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: apps
+  namespace: openshift-gitops
+spec:
+  # Deleting this ApplicationSet must never cascade into ACM, Argo CD settings, or the database.
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: ${GIT_REPO}
+        revision: ${GIT_REF}
+        files:
+          - path: apps/*/application.yaml
+  template:
+    metadata:
+      name: '{{.metadata.name}}'
+      namespace: openshift-gitops
+    spec:
+      project: '{{.spec.project}}'
+      source:
+        repoURL: ${GIT_REPO}
+        targetRevision: ${GIT_REF}
+        path: '{{.path.path}}/manifests'
+      destination:
+        server: '{{.spec.destination.server}}'
+        namespace: '{{.spec.destination.namespace}}'
+  templatePatch: |
+    spec:
+      syncPolicy: {{ .spec.syncPolicy | toJson }}
+      {{- if hasKey .spec "helmGit" }}
+      source:
+        helm:
+          parameters:
+            - { name: gitRepo, value: "${GIT_REPO}" }
+            - { name: gitRef, value: "${GIT_REF}" }
+      {{- end }}
