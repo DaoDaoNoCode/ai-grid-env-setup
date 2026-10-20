@@ -47,5 +47,11 @@ spec:
   tlsConfig:
     ca: { configMap: { name: openshift-service-ca.crt, key: service-ca.crt } }
     serverName: data-science-collector-prometheus.redhat-ods-monitoring.svc
-  staticConfigs:
-    - targets: [data-science-collector-prometheus.redhat-ods-monitoring.svc:8889]
+  # Every collector pod, not the Service: the target allocator splits scrape targets between the
+  # collector's pods, and each exports only what it scraped, so one Service connection (kept alive
+  # to one pod) can return nothing. The headless Service's A records list each pod; the pods serve the
+  # Service's certificate, so serverName above still matches.
+  dnsSDConfigs:
+    - names: [data-science-collector-collector-headless.redhat-ods-monitoring.svc]
+      type: A
+      port: 8889
