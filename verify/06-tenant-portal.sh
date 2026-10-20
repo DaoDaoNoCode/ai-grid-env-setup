@@ -57,6 +57,10 @@ uat "portal opens" "got $code: 302 = Authorino can't reach the proxy's /oauth2/a
 code=$(curl -s -o "$jar/models" -w '%{http_code}' -b "$jar/c" "$MAAS/maas-consumer-portal/maas/api/v1/models")
 uat "portal lists alice's models" "got $code: 401/403/302 = the session's token wasn't passed on (AuthPolicy maas-portal-oidc); 503 'maas-api is not available' = MaaS can't name its public URL (listener host name, Policy maas-route), or maas-ui cached a failed lookup (restart it)" \
   bash -c "[[ $code == 200 ]] && jq -e '[.. | strings] | index(\"$MODEL_NAME\")' '$jar/models'"
+# Authorino adds x-maas-* after its check; a client's own copy is refused, not passed on.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$jar/c" -H 'x-maas-username: forged' "$MAAS/maas-consumer-portal/maas/api/v1/models")
+uat "client identity headers refused" "got $code: AuthPolicy maas-portal-oidc lacks rule no-client-identity-headers, so a forged x-maas-username could reach the portal" \
+  bash -c "[[ $code != 2* ]]"
 # Cross-origin writes: a page on another host under the same apps domain is same-site, so the lax
 # session cookie rides along. The gateway must refuse a cookie-session write whose Origin isn't the
 # portal's own, and still let the portal's own writes through. POST to a read-only path: the portal

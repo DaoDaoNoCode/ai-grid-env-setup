@@ -122,10 +122,15 @@ spec:
                         - { path: { type: Exact, value: /oauth2/callback } }
                         - { path: { type: Exact, value: /oauth2/sign_out } }
                       backendRefs: [{ name: maas-portal-proxy, port: 4180 }]
-            # The portal itself, at the same path the OpenShift AI dashboard uses. Identity headers a
-            # client sends are dropped; only the user's token (x-forwarded-access-token, set by
-            # Authorino) reaches the portal.
-            - complianceType: musthave
+            # The portal itself, at the same path the OpenShift AI dashboard uses. The portal learns the
+            # user from the token Authorino passes (x-forwarded-access-token), never from x-maas-*:
+            # it forwards request headers to maas-api, whose gateway refuses client identity headers
+            # (the portal then fails with "unexpected end of JSON input"; seen on demo1, 2026-10-20).
+            # So this route removes every identity header, and AuthPolicy maas-portal-oidc refuses a
+            # request that brings an x-maas-* identity header rather than dropping it silently.
+            # mustonlyhave: musthave never removes list items, so a shortened removal list would keep
+            # the old entries.
+            - complianceType: mustonlyhave
               objectDefinition:
                 apiVersion: gateway.networking.k8s.io/v1
                 kind: HTTPRoute
@@ -183,7 +188,8 @@ spec:
             # cookie is valid (/oauth2/auth) and, if so, passes the user's access token and MaaS
             # identity headers to the portal; with no session it redirects to /oauth2/start. A
             # caller with a bearer token from realm ai-grid's tenant client is checked directly.
-            - complianceType: musthave
+            # mustonlyhave: musthave never removes map keys, so a header dropped here would stay set.
+            - complianceType: mustonlyhave
               objectDefinition:
                 apiVersion: kuadrant.io/v1
                 kind: AuthPolicy
@@ -313,6 +319,12 @@ spec:
                         patternMatching:
                           patterns:
                             - predicate: "request.method in ['GET', 'HEAD', 'OPTIONS'] || ('origin' in request.headers ? request.headers['origin'] == 'https://maas.{{ $domain }}' : ('sec-fetch-site' in request.headers && request.headers['sec-fetch-site'] == 'same-origin'))"
+                      # A client never sends MaaS identity headers; refuse one instead of stripping it.
+                      no-client-identity-headers:
+                        priority: 0
+                        patternMatching:
+                          patterns:
+                            - predicate: "!('x-maas-username' in request.headers) && !('x-maas-group' in request.headers) && !('x-maas-orgid' in request.headers) && !('x-maas-roles' in request.headers)"
                       require-auth:
                         priority: 1
                         patternMatching:
@@ -326,10 +338,6 @@ spec:
                           x-auth-request-email: { plain: { expression: "auth.authorization['session-and-identity'].identity.email" } }
                           x-auth-request-user: { plain: { expression: "auth.authorization['session-and-identity'].identity.username" } }
                           x-forwarded-access-token: { plain: { expression: "auth.authorization['session-and-identity'].identity.access_token" } }
-                          x-maas-group: { plain: { expression: "auth.authorization['session-and-identity'].identity.groups_header" } }
-                          x-maas-orgid: { plain: { expression: "auth.authorization['session-and-identity'].organization.org_id" } }
-                          x-maas-roles: { plain: { expression: "auth.authorization['session-and-identity'].organization.roles_header" } }
-                          x-maas-username: { plain: { expression: "auth.authorization['session-and-identity'].identity.username" } }
                       unauthenticated:
                         code: 401
                         message: { value: Invalid bearer token }
