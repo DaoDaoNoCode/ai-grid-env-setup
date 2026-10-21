@@ -1,7 +1,6 @@
 # Fallback (component images/in-cluster): images built on the hub into its internal registry, for work
 # not yet published to ghcr.io/ai-grid-cloud. Each builds a pinned commit of main (the console's matches
-# kustomization.yaml). Until console #34 and backend #12 merge, main lags the ghcr pins: the fallback
-# has no provider-admin gate on the console's API. The nodes are linux/amd64, so the images are too.
+# kustomization.yaml), the same commits as the ghcr pins. The nodes are linux/amd64, so the images are too.
 # Rebuild after bumping a ref: oc start-build <name> -n ai-grid, then
 # oc rollout restart deploy/ai-grid-provider-console -n ai-grid.
 apiVersion: image.openshift.io/v1
@@ -18,7 +17,7 @@ apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata: { name: ai-grid-provider-console }
 spec:
-  source: { git: { uri: https://github.com/ai-grid-cloud/ai-grid-provider-console.git, ref: baff2d328d2b2231f8885600ddf7007404e3d404 } }
+  source: { git: { uri: https://github.com/ai-grid-cloud/ai-grid-provider-console.git, ref: f2b1ab137592c36076e864889d022cf482feb0f3 } }
   strategy: { dockerStrategy: { dockerfilePath: Dockerfile } }
   output: { to: { kind: ImageStreamTag, name: "ai-grid-provider-console:latest" } }
   resources: { requests: { cpu: "1", memory: 2Gi }, limits: { memory: 6Gi } }
@@ -28,7 +27,7 @@ apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata: { name: ai-grid-backend }
 spec:
-  source: { git: { uri: https://github.com/ai-grid-cloud/ai-grid-provider-backend.git, ref: a39ddfcc95366f2be60a855351e11cde8ab031cf } }
+  source: { git: { uri: https://github.com/ai-grid-cloud/ai-grid-provider-backend.git, ref: 9827991a2a6c37d80455f7340a46421be1b2dbcc } }
   strategy:
     dockerStrategy:
       dockerfilePath: Containerfile

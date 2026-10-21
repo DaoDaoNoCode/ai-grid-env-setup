@@ -7,7 +7,7 @@ namespace: ai-grid
 resources:
   # Pinned, not main: the base includes ClusterRoleBindings that Argo CD applies with cluster-admin, so
   # a change to what runs on the hub is a reviewed commit here. Bump it with builds.yaml's refs.
-  - https://github.com/ai-grid-cloud/ai-grid-provider-console//manifests/base?ref=baff2d328d2b2231f8885600ddf7007404e3d404
+  - https://github.com/ai-grid-cloud/ai-grid-provider-console//manifests/base?ref=f2b1ab137592c36076e864889d022cf482feb0f3
   - builds.yaml
   - admission.yaml
 # Where the bff and backend images come from: ghcr.io sha tags (default; bump in images/ghcr), or, as a
