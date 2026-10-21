@@ -59,7 +59,7 @@ for s in $SPOKES; do
     # <gateway>-authn-ssl EnvoyFilter forcing TLS to it if a gateway reconciles before Authorino
     # exists, and never removes it: every authenticated call then gets 500.
     uat "$s gateway reaches Authorino in plaintext" "a stale <gateway>-authn-ssl EnvoyFilter in openshift-ingress (Policy authorino-service-ca removes it): kc $s get envoyfilter -n openshift-ingress" \
-      bash -c "! kc $s get envoyfilter -n openshift-ingress -o name | grep -q -- '-authn-ssl\$'"
+      bash -c "out=\$(kc $s get envoyfilter -n openshift-ingress -o name) && ! grep -q -- '-authn-ssl\$' <<<\"\$out\""
   else
     uat "$s has no MaaS"      "inference values enabled aigateway" bash -c "! kc $s get deploy maas-api -n redhat-ai-gateway-infra"
   fi
