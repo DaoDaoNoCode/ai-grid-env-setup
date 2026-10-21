@@ -48,8 +48,8 @@ uat "session cookie host-only" "the proxy sets a Domain on its cookie, or isn't 
   bash -c "awk -F'\t' '\$6 ~ /^__Host-maas_portal_proxy/ && \$1 !~ /^(#HttpOnly_)?\\./ && \$2 == \"FALSE\" {f=1} END {exit !f}' '$jar/c'"
 # Only the sign-in steps are public; /oauth2/auth would hand a page's script the session's token.
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$jar/c" "$MAAS/oauth2/auth")
-uat "proxy's token endpoint not public" "got $code: an old route maas-portal-oauth2 (all of /oauth2) is still attached, or maas-portal-signin matches more than start, callback and sign_out" \
-  bash -c "[[ $code != 2* ]]"
+uat "proxy's token endpoint not public" "got $code, not the gateway's 404: an old route maas-portal-oauth2 (all of /oauth2) is still attached, or maas-portal-signin matches more than start, callback and sign_out" \
+  bash -c "[[ $code == 404 ]]"
 code=$(curl -s -o "$jar/page" -w '%{http_code}' -b "$jar/c" "$MAAS/maas-consumer-portal/")
 uat "portal opens" "got $code: 302 = Authorino can't reach the proxy's /oauth2/auth; 503 = gateway can't reach maas-portal (ReferenceGrant, DestinationRule, or its NetworkPolicy)" \
   bash -c "[[ $code == 200 ]] && grep -qi '<html' '$jar/page'"
@@ -58,25 +58,30 @@ code=$(curl -s -o "$jar/models" -w '%{http_code}' -b "$jar/c" "$MAAS/maas-consum
 uat "portal lists alice's models" "got $code: 401/403/302 = the session's token wasn't passed on (AuthPolicy maas-portal-oidc); 503 'maas-api is not available' = MaaS can't name its public URL (listener host name, Policy maas-route), or maas-ui cached a failed lookup (restart it)" \
   bash -c "[[ $code == 200 ]] && jq -e '[.. | strings] | index(\"$MODEL_NAME\")' '$jar/models'"
 # Authorino adds x-maas-* after its check; a client's own copy is refused, not passed on.
+# AuthPolicy maas-portal-oidc answers every refusal with its unauthorized response, a 302 to sign-in, so
+# a refusal looks like an expired session. The same request without the header, right after, must
+# still get 200: then the 302 came from the rule, not from the session.
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$jar/c" -H 'x-maas-username: forged' "$MAAS/maas-consumer-portal/maas/api/v1/models")
-uat "client identity headers refused" "got $code: AuthPolicy maas-portal-oidc lacks rule no-client-identity-headers, so a forged x-maas-username could reach the portal" \
-  bash -c "[[ $code != 2* ]]"
+ctl=$(curl -s -o /dev/null -w '%{http_code}' -b "$jar/c" "$MAAS/maas-consumer-portal/maas/api/v1/models")
+uat "client identity headers refused" "got $code, then $ctl without the header (want 302, then 200): AuthPolicy maas-portal-oidc lacks rule no-client-identity-headers, so a forged x-maas-username could reach the portal" \
+  bash -c "[[ $code == 302 && $ctl == 200 ]]"
 # Cross-origin writes: a page on another host under the same apps domain is same-site, so the lax
 # session cookie rides along. The gateway must refuse a cookie-session write whose Origin isn't the
 # portal's own, and still let the portal's own writes through. POST to a read-only path: the portal
-# answers 405 in JSON, which shows the request reached it.
+# answers 405 in JSON, which shows the request reached it. A refusal is the policy's 302 (above); the
+# same session's own-origin write below is the control.
 domain=${MAAS#https://maas.}
 code=$(curl -s -o "$jar/post" -w '%{http_code}' -b "$jar/c" -X POST -H "Origin: https://evil.$domain" -H 'Content-Type: application/json' -d '{}' "$MAAS/maas-consumer-portal/maas/api/v1/models")
-uat "cross-origin write refused" "got $code: AuthPolicy maas-portal-oidc's same-origin-writes rule missing; a cookie-session POST from another origin reached the portal" \
-  bash -c "[[ $code != 2* ]] && ! grep -q '\"error\"' '$jar/post'"
+uat "cross-origin write refused" "got $code, not 302: AuthPolicy maas-portal-oidc's same-origin-writes rule missing; a cookie-session POST from another origin reached the portal" \
+  bash -c "[[ $code == 302 ]] && ! grep -q '\"error\"' '$jar/post'"
 for h in 'Origin: null' 'Sec-Fetch-Site: cross-site'; do
   code=$(curl -s -o "$jar/post" -w '%{http_code}' -b "$jar/c" -X POST -H "$h" -H 'Content-Type: application/json' -d '{}' "$MAAS/maas-consumer-portal/maas/api/v1/models")
-  uat "write with '$h' refused" "got $code: the same-origin-writes rule let it through" \
-    bash -c "[[ $code != 2* ]] && ! grep -q '\"error\"' '$jar/post'"
+  uat "write with '$h' refused" "got $code, not 302: the same-origin-writes rule let it through" \
+    bash -c "[[ $code == 302 ]] && ! grep -q '\"error\"' '$jar/post'"
 done
 code=$(curl -s -o "$jar/post" -w '%{http_code}' -b "$jar/c" -X POST -H "Origin: $MAAS" -H 'Content-Type: application/json' -d '{}' "$MAAS/maas-consumer-portal/maas/api/v1/models")
-uat "same-origin write let through" "got $code: the same-origin-writes rule refuses the portal's own Origin" \
-  grep -q '"error"' "$jar/post"
+uat "same-origin write let through" "got $code, not the portal's 405: the same-origin-writes rule refuses the portal's own Origin" \
+  bash -c "[[ $code == 405 ]] && grep -q '\"error\"' '$jar/post'"
 code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Cookie: __Host-maas_portal_proxy=forged' "$MAAS/maas-consumer-portal/")
 uat "forged cookie refused" "got $code: Authorino passed a request without a valid session" test "$code" = 302
 summary
