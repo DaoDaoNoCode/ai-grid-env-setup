@@ -37,7 +37,8 @@ for s in $NETWORK; do
   fi
 done
 # Leaving the grid leaves the network (the app's resources finalizer): no cluster but the hub and the
-# members keeps the add-on, and with it a route to the hub's maas-db and enrollment.
-uat "only members on the network" "a non-member keeps managedclusteraddon submariner (the add-on outlived its Application): kc host delete managedclusteraddon submariner -n <cluster>" \
-  bash -c "a=\$(kc $h get managedclusteraddon -A --field-selector metadata.name=submariner -o jsonpath='{.items[*].metadata.namespace}') || exit 1; for c in \$a; do case \" $NETWORK \" in *\" \$c \"*) ;; *) exit 1;; esac; done"
+# ones Placement ai-grid-network selects now keeps the add-on, and with it a route to the hub's
+# maas-db and enrollment. Actual membership, not SPOKES, so a removed spoke still listed there counts.
+uat "only members on the network" "a non-member keeps managedclusteraddon submariner (the add-on outlived its Application; runbook Known gaps): kc host delete managedclusteraddon submariner -n <cluster>" \
+  bash -c "m=\$(kc $h get placementdecisions -n openshift-gitops -l cluster.open-cluster-management.io/placement=ai-grid-network -o jsonpath='{.items[*].status.decisions[*].clusterName}') || exit 1; a=\$(kc $h get managedclusteraddon -A --field-selector metadata.name=submariner -o jsonpath='{.items[*].metadata.namespace}') || exit 1; for c in \$a; do case \" local-cluster \$m \" in *\" \$c \"*) ;; *) exit 1;; esac; done"
 summary
