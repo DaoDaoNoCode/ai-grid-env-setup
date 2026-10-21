@@ -52,9 +52,10 @@ for s in $MODEL_SITES; do
   uat "$s models app"    "spokes/clusters/$s/models missing, or the ApplicationSet didn't select $s" app models-$s
   uat "$s model Ready"   "image pull or memory: kc $s describe pod -n aigrid-models" \
     bash -c "kc $s get llminferenceservice $MODEL_NAME -n aigrid-models -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' | grep -qx True"
-  uat "$s model answers" "vLLM still loading, or the workload Service name differs: kc $s get svc -n aigrid-models" \
+  # The workload's serving certificate is signed by the service CA, which every pod gets beside its token.
+  uat "$s model answers" "vLLM still loading, the workload Service name differs, or its certificate isn't the service CA's: kc $s get svc -n aigrid-models" \
     bash -c "kc $s run probe-\$RANDOM -n aigrid-models --rm -i --restart=Never --image=registry.access.redhat.com/ubi9/ubi-minimal:latest --quiet -- \
-      curl -sk https://${MODEL_NAME}-kserve-workload-svc.aigrid-models.svc:8000/aigrid-models/${MODEL_NAME}/v1/models | grep -q opt-125m"
+      curl -s --cacert /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt https://${MODEL_NAME}-kserve-workload-svc.aigrid-models.svc:8000/aigrid-models/${MODEL_NAME}/v1/models | grep -q opt-125m"
 done
 for s in $SPOKES; do
   [[ $(role_of $s) == inference ]] && continue
