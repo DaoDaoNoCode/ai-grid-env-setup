@@ -52,13 +52,18 @@ console and the databases, and no OpenShift AI.
 
 | Step | Command | What happens | Time |
 |---|---|---|---|
-| 1 | `SPOKES="local-cluster site-a" bash bootstrap/45-import.sh` (kubeconfig at `$KUBEDIR/site-a`) | ManagedCluster `site-a`, no `ai-grid/enabled`; `ai-grid/network=true` puts it on Submariner with the hub (Placement `ai-grid-network`, load-balancer mode: no AWS credentials) | joined 13 s; tunnel up about 4 min later |
+| 1 | `SPOKES="local-cluster site-a" bash bootstrap/45-import.sh` (kubeconfig at `$KUBEDIR/site-a`) | ManagedCluster `site-a`, no `ai-grid/*` labels: importing gives no grid membership and no network yet | joined 13 s |
 | 2 | add `invites.<site>` to `apps/grid-enrollment/manifests/values.yaml` and `spokes/clusters/<site>/models`, commit | the invite Job mints a 24 h token; ACM delivers it to the site | about 1 min |
 | 3 | `SPOKES="… site-a" bash bootstrap/36-portal-clients.sh` | `maas-cli` takes the site's portal callback | seconds |
-| 4 | **Add to AI Grid** in the console (`combined`, a location) | as for `local-cluster`; the site enrolls with enrollment over Submariner (`grid-enrollment.grid-enrollment.svc.clusterset.local`) | enrolled 72 s; Provisioned 11 min |
+| 4 | **Add to AI Grid** in the console (`combined`, a location) | as for `local-cluster`; membership also puts the site on Submariner with the hub (Placement `ai-grid-network` selects `ai-grid/enabled`; load-balancer mode, no AWS credentials), and the site enrolls with enrollment over it (`local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local:8443`) | tunnel up about 4 min; enrolled 72 s; Provisioned 11 min |
 | 5 | `bash bootstrap/50-grid-hub-info.sh`, then commit the printed `siteDigests.<site>` | the site's provider gateway pins its own certificate (until then it pins zeros and refuses every caller) | – |
 | 6 | `CONFIRM=local-cluster bash bootstrap/98-uninstall-spoke.sh local-cluster`, then `SPOKES=site-a bash bootstrap/36-portal-clients.sh` | the hub leaves the grid and drops OpenShift AI; its Submariner, `maas-db` and `grid` stay | 159 s |
 | 7 | `SPOKES=site-a SPOKE_ROLES=site-a=combined SPOKE_LOCATIONS=site-a=us-east make verify` | 177 checks (221 with both spokes) | about 3 min |
+
+`invites.site-a` (`apps/grid-enrollment/manifests/values.yaml`) and `siteDigests.site-a`
+(`apps/ai-grid-spokes/manifests/values.yaml`) are values from this build, like `hubSiteDigest`. On a
+rebuild, replace them as steps 2 and 5 say: until then the invite names a cluster that may not exist,
+and the provider gateway pins a stale digest and refuses every caller.
 
 Spokes reach the hub's exports at `local-cluster.<svc>.<ns>.svc.clusterset.local`, Lighthouse's
 name for the hub's own export, so another member exporting a Service of the same name can't answer
