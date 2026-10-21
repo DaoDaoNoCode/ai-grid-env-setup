@@ -10,11 +10,16 @@
 source "$(dirname "$0")/lib.sh"
 s=${1:?usage: CONFIRM=<spoke> bash bootstrap/98-uninstall-spoke.sh <spoke>}
 [[ ${CONFIRM:-} == "$s" ]] || die "this deletes OpenShift AI and MaaS from $s; rerun with CONFIRM=$s"
-gone() { # <timeout s> <kc args...>: wait until the object is gone; any error but NotFound stops
+# Kinds gone() is called with whose CRD may never have arrived, on a spoke whose install stopped before
+# KServe or Kuadrant: nothing of that kind exists. Uninstalling keeps CRDs, so a rerun still has them.
+# Any other unknown kind is a typo here, and stops the script rather than skip its wait.
+may_lack_crd="llminferenceservice kuadrant"
+gone() { # <timeout s> <kc args...>: wait until the object is gone; any other error stops
   local t=$1 err; shift
   for _ in $(seq 1 $((t / 5))); do
     if ! err=$(kc $s get "$@" -o name 2>&1 >/dev/null); then
-      [[ $err == *NotFound* || $err == *"doesn't have a resource type"* ]] && return 0
+      [[ $err == *NotFound* ]] && return 0
+      [[ $err == *"doesn't have a resource type"* && " $may_lack_crd " == *" $1 "* ]] && return 0
       die "can't check $*: $err"
     fi
     sleep 5
