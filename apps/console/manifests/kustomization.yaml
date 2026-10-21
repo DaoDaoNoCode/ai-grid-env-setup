@@ -6,7 +6,8 @@ kind: Kustomization
 namespace: ai-grid
 resources:
   # Pinned, not main: the base includes ClusterRoleBindings that Argo CD applies with cluster-admin, so
-  # a change to what runs on the hub is a reviewed commit here. Bump it with builds.yaml's refs.
+  # a change to what runs on the hub is a reviewed commit here. Bump it with builds.yaml's refs and the ghcr pins
+  # (images/ghcr), all to the same commits.
   - https://github.com/ai-grid-cloud/ai-grid-provider-console//manifests/base?ref=f2b1ab137592c36076e864889d022cf482feb0f3
   - builds.yaml
   - admission.yaml

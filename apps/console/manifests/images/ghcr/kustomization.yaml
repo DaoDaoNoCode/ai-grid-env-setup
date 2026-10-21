@@ -3,7 +3,7 @@
 # Pin sha-<full commit>@<digest>: tags can be overwritten, so the digest is what's deployed, and the tag
 # says which commit it is. Never latest or pr-<N>. Bump: take the sha-<commit> tag CI published for the
 # merge commit and its digest (skopeo inspect docker://<image>:<tag> | jq -r .Digest), change both here, and move the base ref in ../../kustomization.yaml
-# when the console's manifests changed.
+# and the refs in ../../builds.yaml to the same commits.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 patches:
