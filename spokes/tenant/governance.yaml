@@ -1,17 +1,18 @@
-# Who may call the model, and how much: Keycloak group org1-group1 (organization org1) at
+# Who may call the model, and how much: Keycloak group group1 of organization org1 (its token form
+# `<organization id>:group1`, ODH-ADR-MS-0007) at
 # 100 tokens a minute. dave is in org1 but in no group, so in no subscription.
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSAuthPolicy
 metadata: { name: opt-125m-org1, namespace: models-as-a-service }
 spec:
   modelRefs: [{ name: facebook-opt-125m, namespace: models-as-a-service }]
-  subjects: { groups: [{ name: org1-group1 }], users: [] }
+  subjects: { groups: [{ name: "6c0e9545-c68e-448e-bd38-a4cca32e963a:group1" }], users: [] }
 ---
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSSubscription
 metadata: { name: opt-125m-org1, namespace: models-as-a-service }
 spec:
-  owner: { groups: [{ name: org1-group1 }], users: [] }
+  owner: { groups: [{ name: "6c0e9545-c68e-448e-bd38-a4cca32e963a:group1" }], users: [] }
   modelRefs:
     - name: facebook-opt-125m
       namespace: models-as-a-service

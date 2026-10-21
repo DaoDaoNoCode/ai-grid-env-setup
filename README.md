@@ -41,7 +41,9 @@ The Submariner and Limitador Redis setup follows Pierangelo Di Pilato's work in 
 the replicated MaaS database follows Kevin Howell's.
 
 The MaaS Portal sign-in's Authorino rules and route header handling
-(`apps/ai-grid-policies/manifests/templates/tenant-portal.yaml`) are adapted from
+(`apps/ai-grid-policies/manifests/templates/tenant-portal.yaml`), and the tenant realms' brokering shape
+(`apps/keycloak/manifests/realm-*.yaml`: organizations routed by domain to their own identity
+providers), are adapted from
 [lphiri/maas-portal-integration-poc](https://github.com/lphiri/maas-portal-integration-poc) by Lindani
 Phiri, under the MIT License (Copyright (c) 2026 lphiri); its license text is in
 [`third-party/maas-portal-integration-poc.LICENSE`](third-party/maas-portal-integration-poc.LICENSE).

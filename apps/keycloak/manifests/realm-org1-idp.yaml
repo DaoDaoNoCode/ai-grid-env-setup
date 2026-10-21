@@ -1,0 +1,49 @@
+# DRAFT (step 2): organization org1's own identity provider, which the broker realm ai-grid signs its
+# users in through (ODH-ADR-MS-0007; after Lindani Phiri's maas-portal-integration-poc tenant realms,
+# MIT, third-party/). It stands in for the organization's corporate IdP. Users and their passwords
+# come from bootstrap/35-keycloak.sh, not git. PLACEHOLDER names: org1, org1-idp, ai-grid-broker.
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakRealmImport
+metadata:
+  name: org1-idp
+  namespace: keycloak
+  annotations: { argocd.argoproj.io/sync-wave: "3" }
+spec:
+  keycloakCRName: maas-keycloak
+  placeholders:
+    KEYCLOAK_PUBLIC_URL: { secret: { name: ai-grid-tenant-idps, key: keycloak-url } }
+    ORG1_BROKER_SECRET: { secret: { name: ai-grid-tenant-idps, key: org1-broker-secret } }
+  realm:
+    realm: org1-idp
+    enabled: true
+    # Users can't rename themselves or change their email (the broker copies both): the username here,
+    # the email by bootstrap/35-keycloak.sh (admin-only in the user profile, which an import can't set).
+    editUsernameAllowed: false
+    verifyEmail: false
+    bruteForceProtected: true
+    permanentLockout: false
+    failureFactor: 10
+    waitIncrementSeconds: 60
+    maxFailureWaitSeconds: 900
+    # Plain names: the broker maps each one it allows to its `<organization id>:<group>` group.
+    groups:
+      - { name: group1 }
+    clients:
+      # The broker realm's client: confidential, and allowed only the broker's callback.
+      - clientId: ai-grid-broker
+        publicClient: false
+        clientAuthenticatorType: client-secret
+        secret: "${ORG1_BROKER_SECRET}"
+        standardFlowEnabled: true
+        directAccessGrantsEnabled: false
+        redirectUris: ["${KEYCLOAK_PUBLIC_URL}/realms/ai-grid/broker/org1-idp/endpoint"]
+        attributes:
+          pkce.code.challenge.method: S256
+          post.logout.redirect.uris: "${KEYCLOAK_PUBLIC_URL}/realms/ai-grid/broker/org1-idp/endpoint/logout_response"
+        protocolMappers:
+          # In the ID token and UserInfo only: the broker reads it there. No organization claim: the
+          # broker sets that itself, whatever a provider sends.
+          - name: groups
+            protocol: openid-connect
+            protocolMapper: oidc-group-membership-mapper
+            config: { claim.name: groups, full.path: "false", id.token.claim: "true", access.token.claim: "false", userinfo.token.claim: "true" }

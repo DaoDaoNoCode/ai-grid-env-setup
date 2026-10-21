@@ -65,6 +65,30 @@ of 240 on both spokes. Upgrade an inference spoke before the ingress one. Until 
 replaced, its `platform-<spoke>` app can stay OutOfSync on DSC fields the old CRD doesn't have (here
 `kserve.modelExpress`).
 
+### Upgrading realm ai-grid to the broker
+
+The Keycloak operator imports a realm only when it doesn't exist, so a hub whose realm `ai-grid`
+predates the broker (random organization IDs, groups `org1-group1`, no identity providers) keeps it,
+and `bootstrap/35-keycloak.sh` stops with these steps. Deleting the realm drops everything written into
+it: its users, the console backend's user, and `maas-cli`'s portal callbacks, so the last step writes
+them again. Done on `demo1` on 2026-10-21.
+
+> **Warning:** The import brings back only `org1` and `org2` from git. Organizations created in the
+> console (through the backend's Tenants API) are lost with the realm, with their members and
+> attributes, and the import doesn't restore them.
+
+1. Save the organizations first, with a token from realm `master`:
+   `GET /admin/realms/ai-grid/organizations?briefRepresentation=false&first=0&max=1000`, to a file. After
+   step 4, create any you still need again (in the console, or `POST /admin/realms/ai-grid/organizations`
+   with each saved entry without its `id`), and check their IDs: a subscription names its organization
+   by ID.
+2. Delete realm `ai-grid` through the admin API (`DELETE /admin/realms/ai-grid`, with a token from realm
+   `master`), or from the admin console's realm settings.
+3. `oc delete keycloakrealmimport ai-grid -n keycloak`. Argo CD recreates it and the operator imports the
+   realm from git, alongside `org1-idp` and `org2-idp`.
+4. `bash bootstrap/35-keycloak.sh && bash bootstrap/36-portal-clients.sh && bash bootstrap/60-console.sh`
+   (with the usual `SPOKES` for 36), then `make verify`.
+
 ### A remote spoke, and a hub without OpenShift AI
 
 Built 2026-10-21 on two demo.redhat.com clusters (OpenShift 4.21, AWS, same region, same pod and
