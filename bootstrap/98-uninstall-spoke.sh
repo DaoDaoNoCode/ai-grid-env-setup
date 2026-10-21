@@ -55,6 +55,19 @@ del_app() { # <app> [kind...]: delete what that app deployed, optionally only th
 kc $HOST label managedcluster $s "$LABEL_ENABLED-" "$LABEL_ROLE-" >/dev/null
 if [[ $s != local-cluster ]]; then
   log "Submariner (the add-on removes its agent from $s)"
+  # Wait for the network Placement to drop the spoke first: while its decision still lists $s, the
+  # ApplicationSet recreates submariner-$s, which re-applies the add-on, and later removes the app
+  # with preserveResourcesOnDeletion, leaving the add-on (and the route to the hub) behind.
+  for _ in $(seq 1 24); do
+    [[ " $(kc $HOST get placementdecisions -n openshift-gitops \
+      -l cluster.open-cluster-management.io/placement=ai-grid-network \
+      -o jsonpath='{.items[*].status.decisions[*].clusterName}') " != *" $s "* ]] && break
+    sleep 5
+  done
+  [[ " $(kc $HOST get placementdecisions -n openshift-gitops \
+    -l cluster.open-cluster-management.io/placement=ai-grid-network \
+    -o jsonpath='{.items[*].status.decisions[*].clusterName}') " != *" $s "* ]] ||
+    die "Placement ai-grid-network still selects $s after 120s; check its labels and rerun"
   kc $HOST delete applications.argoproj.io submariner-$s -n openshift-gitops --ignore-not-found --wait=false >/dev/null
   kc $HOST delete managedclusteraddon submariner -n $s --ignore-not-found
   kc $HOST delete submarinerconfigs.submarineraddon.open-cluster-management.io submariner -n $s --ignore-not-found
