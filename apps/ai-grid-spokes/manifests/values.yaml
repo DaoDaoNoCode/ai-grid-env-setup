@@ -15,6 +15,12 @@ providerIP: 172.30.255.11
 # D8: the hub site's certificate digest, which the gateways pin. It's a fingerprint, not a secret or
 # a host name; it changes on every rebuild: copy it from ConfigMap ai-grid-policies/ai-grid-hub-info.
 hubSiteDigest: "e11b9e876791edb1062b1fe34080ecfbcc75b52e4c8fe2639701fe36088ea5b9"
+# A remote site's own certificate digest, which its provider gateway pins (its consumer presents
+# that site's identity). It exists only once the site has enrolled: bootstrap/50-grid-hub-info.sh
+# prints it from the site's GridNetwork; commit it here. Until then the provider pins 64 zeros and
+# refuses every caller.
+siteDigests:
+  site-a: ""
 # Remote spokes enroll with the hub's enrollment over Submariner (apps/grid-enrollment).
 enrollHost: grid-enrollment.grid-enrollment.svc.clusterset.local:8443
 # A remote site's gossip Service. ClusterIP while it's the only remote site: it has no peer, and a
