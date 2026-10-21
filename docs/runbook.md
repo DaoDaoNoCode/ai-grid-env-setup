@@ -88,6 +88,38 @@ invite Policy deadlocks Argo CD's PostSync hooks (a Policy health check); odh-mo
 stale `<gateway>-authn-ssl` EnvoyFilters (Policy `authorino-service-ca` removes them); and Argo CD's
 controller needs 8Gi once it caches a second cluster.
 
+### An inference site served through another site's MaaS
+
+Not yet built. An `inference` spoke runs OpenShift AI, the grid provider and the model, and no MaaS
+or consumer. A tenant request enters an `ingress` or `combined` spoke's MaaS, whose consumer gateway
+calls the inference site's provider over the grid's mutual TLS through Submariner. The gateways
+refuse host names, and a clusterset name resolves private, so the consumer dials the inference
+site's exported provider Service (`spokes/grid/provider-export`) at its Globalnet address, a literal
+`242.x` IP that changes on every build.
+
+| Step | Command | What happens |
+|---|---|---|
+| 1 | import, invite and `spokes/clusters/<site>/models` as steps 1–3 above | as for `site-a` |
+| 2 | if it's the second remote site: `remoteSwimServiceType: LoadBalancer` in `apps/ai-grid-spokes/manifests/values.yaml`, commit | remote sites gossip with each other through an NLB |
+| 3 | **Add to AI Grid** in the console, role `inference` | OpenShift AI, the grid operator and provider, the model, and ApplicationSet `grid-provider-export`, which exports `grid-provider-fixed`; Globalnet gives it a GlobalIngressIP |
+| 4 | `bash bootstrap/50-grid-hub-info.sh`, then commit the printed `siteDigests.<site>` and `providerGlobalIPs.<site>`, and list every ingress and combined spoke in `consumerSites` | every other site's consumer lists the site as a backend at that address; the site's provider pins exactly the `consumerSites` digests; its grid operator advertises that address |
+| 5 | `make verify` | `verify/05` checks the export's address against git, each consumer's backend, and both lists against the spokes' roles. Stopping only the model doesn't move traffic: the consumer health-checks provider gateways over TCP, so a site whose provider is up keeps being chosen and answers 502 (demo1, 2026-10-22: site-a's model at 0 replicas, 4 of 4 requests still went to site-a). Proving the route with `E2E_EXPECT_SITE=<site> bash verify/06-tenant-e2e.sh` is pending a choice: a model served only on the inference site, or the entry spoke's grid provider stopped (unverified that `intelligent_route` then skips that site) |
+
+`providerGlobalIPs.<site>` is a value from this build, like `siteDigests`: on a rebuild, replace it
+as step 4 says. An `ingress` spoke has no provider of its own, so it needs at least one
+`providerGlobalIPs` entry (with none, its consumer's values fail the chart's schema).
+
+The provider has no NetworkPolicy, so traffic from another cluster (Globalnet SNATs it to that
+cluster's `242.x` egress address, so a namespaceSelector couldn't match it) reaches it; the mutual
+TLS and the pinned digests decide who's served. A NetworkPolicy would need the local consumer, the
+grid operator's probe, and an ipBlock for the callers' Globalnet range.
+
+To check on a cluster first: that Globalnet names the export's GlobalIngressIP `grid-provider-fixed`
+(after the Service, as `maas-db-rw`'s is); that the gateway takes a `242.x` literal as a backend and its TCP
+health check reaches it; that MaaS passes `X-Grid-Provider-Site` back to the caller; that the inference site's operator can reach its own Globalnet address if it
+probes the advertised one; and that an ingress spoke's operator enrolls and creates
+`grid-site-identity`, which its consumer presents.
+
 **Teardown** (`make teardown`) stops delivery and leaves what it installed: it unlabels the spokes,
 deletes the root ApplicationSet, then everything the delivery apps `ai-grid-spokes` and
 `ai-grid-policies` created (found by Argo CD's tracking annotation), then those apps. No Application
