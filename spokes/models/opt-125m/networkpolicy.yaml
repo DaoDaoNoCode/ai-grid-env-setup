@@ -1,0 +1,14 @@
+# KServe's own policy admits only monitoring, openshift-ingress, and this namespace; the grid's
+# provider gateway runs in namespace grid and forwards requests to the model.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: allow-grid-provider, namespace: aigrid-models }
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: facebook-opt-125m, kserve.io/component: workload }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: grid } }
+          podSelector: { matchLabels: { app.kubernetes.io/instance: grid-provider } }
+      ports: [{ port: 8000, protocol: TCP }]

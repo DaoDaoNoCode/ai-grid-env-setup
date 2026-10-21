@@ -1,0 +1,18 @@
+# Cheap checks that need no cluster: shell scripts lint clean, and every directory Argo CD deploys from
+# renders or parses (hack/check-manifests.sh, which says how; run it locally the same way).
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: shellcheck
+        run: shellcheck -x -S error env.sh bootstrap/*.sh verify/*.sh hack/*.sh
+      - name: render apps
+        run: bash hack/check-manifests.sh https://github.com/${{ github.repository }}.git ${{ github.sha }}

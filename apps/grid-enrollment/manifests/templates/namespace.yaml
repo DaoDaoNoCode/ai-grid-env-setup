@@ -1,0 +1,6 @@
+# The chart writes the hub site's identity into namespace grid but doesn't create it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grid
+  annotations: { argocd.argoproj.io/sync-wave: "-1" }

@@ -1,0 +1,8 @@
+# The consumer gateway dials the provider gateway at a fixed ClusterIP (host names are refused).
+apiVersion: v1
+kind: Service
+metadata: { name: grid-provider-fixed, namespace: grid }
+spec:
+  clusterIP: 172.30.255.11
+  selector: { app.kubernetes.io/name: praxis-gateway, app.kubernetes.io/instance: grid-provider }
+  ports: [{ name: https, port: 8443, targetPort: 8443 }]

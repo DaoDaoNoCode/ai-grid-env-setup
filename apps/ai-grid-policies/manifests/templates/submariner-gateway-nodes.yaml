@@ -1,0 +1,31 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: submariner-gateway-nodes, namespace: ai-grid-policies }
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: submariner-gateway-nodes }
+        spec:
+          severity: low
+          # Submariner's gateways run on nodes labelled submariner.io/gateway. Every node whose only
+          # role is worker gets the label, so new and replaced workers do too, with no node names in git.
+          object-templates-raw: |
+{{`            {{- range (getNodesWithExactRoles "worker").items }}
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Node
+                metadata:
+                  name: {{ .metadata.name }}
+                  labels: { submariner.io/gateway: "true" }
+            {{- end }}`}}
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: submariner-gateway-nodes, namespace: ai-grid-policies }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-spokes }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: submariner-gateway-nodes }]

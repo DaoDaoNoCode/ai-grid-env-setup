@@ -1,0 +1,7 @@
+apiVersion: v2
+name: grid-enrollment-hub
+version: 0.1.0
+dependencies:
+  - name: grid-enrollment
+    version: 0.2.0          # the grid release (also gridVersion in apps/ai-grid-spokes); switch to 0.2.1 once it's published
+    repository: oci://ghcr.io/praxis-proxy/charts

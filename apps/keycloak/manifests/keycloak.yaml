@@ -1,0 +1,78 @@
+# Keycloak's own database: without one, RHBK uses a development database inside the pod, and a
+# restart would lose the realm, its organizations, and its users.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: keycloak-db
+  namespace: keycloak
+spec:
+  instances: 1
+  bootstrap: { initdb: { database: keycloak, owner: keycloak } }
+  storage: { size: 5Gi }
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { memory: 1Gi }
+---
+# Our Keycloak database only (the namespace also holds the demo order's Keycloak and its database):
+# Postgres from our Keycloak, its realm import Jobs and the instance itself; CloudNativePG's status
+# port from the operator; metrics from cluster monitoring.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-db-ingress
+  namespace: keycloak
+spec:
+  podSelector: { matchLabels: { cnpg.io/cluster: keycloak-db } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/instance: maas-keycloak } }
+        - podSelector: { matchLabels: { cnpg.io/cluster: keycloak-db } }
+      ports: [{ port: 5432, protocol: TCP }]
+    - from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: cnpg-system } } }]
+      ports: [{ port: 8000, protocol: TCP }]
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: openshift-monitoring } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: openshift-user-workload-monitoring } }
+      ports: [{ port: 9187, protocol: TCP }]
+---
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: Keycloak
+metadata:
+  name: maas-keycloak
+  namespace: keycloak
+  annotations: { argocd.argoproj.io/sync-wave: "1" }
+spec:
+  instances: 1
+  db:
+    vendor: postgres
+    host: keycloak-db-rw
+    database: keycloak
+    usernameSecret: { name: keycloak-db-app, key: username }
+    passwordSecret: { name: keycloak-db-app, key: password }
+  # bootstrap/35-keycloak.sh pins spec.hostname.hostname to the Route's host once the Route exists
+  # (no host name in git); until then Keycloak takes it from the router's forwarded headers.
+  hostname: { strict: false }
+  proxy: { headers: xforwarded }
+  http: { httpEnabled: true }
+  ingress: { enabled: false }
+  # The operator's NetworkPolicy: HTTP only from the router (everything reaches Keycloak through its
+  # Route); clustering stays between its own pods. The namespace is shared with the demo order's own
+  # Keycloak, so nothing here selects that one.
+  networkPolicy:
+    enabled: true
+    http: [{ namespaceSelector: { matchLabels: { network.openshift.io/policy-group: ingress } } }]
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  # Not "keycloak": that Route belongs to the demo order's own Keycloak, which the cluster login uses.
+  name: maas-keycloak
+  namespace: keycloak
+  # Keycloak trusts X-Forwarded-* (proxy headers xforwarded); the router replaces any a client sends,
+  # so a forged X-Forwarded-Host can't change issuer or redirect URLs before the hostname is pinned.
+  annotations: { argocd.argoproj.io/sync-wave: "2", haproxy.router.openshift.io/set-forwarded-headers: replace }
+spec:
+  to: { kind: Service, name: maas-keycloak-service }
+  port: { targetPort: 8080 }
+  tls: { termination: edge, insecureEdgeTerminationPolicy: Redirect }

@@ -1,0 +1,24 @@
+# One Argo CD Application per apps/*/application.yaml.
+# The root ApplicationSet (bootstrap/applicationset.yaml) supplies the repository, revision,
+# and path apps/ai-grid-spokes/manifests; this file supplies the rest.
+metadata:
+  name: ai-grid-spokes
+  namespace: openshift-gitops
+spec:
+  project: default
+  # Receive gitRepo and gitRef as Helm parameters from the root ApplicationSet.
+  helmGit: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openshift-gitops
+  syncPolicy:
+    automated:
+      # Never prune hub platform pieces: deleting a file must not delete ACM, Argo CD, or the database.
+      prune: false
+      selfHeal: true
+    retry:
+      limit: 20
+      backoff: { duration: 30s, factor: 2, maxDuration: 10m }
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

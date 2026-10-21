@@ -1,0 +1,19 @@
+# gitRepo and gitRef come from the root ApplicationSet as Helm parameters (bootstrap/00-gitops.sh).
+odhGitopsRef: "8897054629471af15b79573a7a158c71ffb30abf"         # odh-gitops main, 2026-10-16 (DSC v3, dashboard.dsc.maasPortal)
+gridVersion: 0.2.0             # switch to 0.2.1 once it's tagged and its charts are published
+# The grid gateway image by digest (the v<gridVersion> tag's multi-arch index); bump with gridVersion:
+# skopeo inspect --raw docker://ghcr.io/praxis-proxy/grid-gateway:v<gridVersion> | shasum -a 256
+gridGatewayDigest: sha256:3b6679e885fb9a4ef9fa8b8fb7214de36648e649cbb80722a296b87ea1ce9f42
+gridNs: grid
+gridId: aigrid-demo
+gridNetwork: grid
+modelName: facebook-opt-125m
+# Fixed ClusterIPs (in 172.30.0.0/16) the grid gateways dial, since they refuse in-cluster host names:
+# the model's grid-backend Service (spokes/models) and the provider gateway's (spokes/grid/provider).
+modelBackendIP: 172.30.255.10
+providerIP: 172.30.255.11
+# D8: the hub site's certificate digest, which the gateways pin. It's a fingerprint, not a secret or
+# a host name; it changes on every rebuild: copy it from ConfigMap ai-grid-policies/ai-grid-hub-info.
+hubSiteDigest: "e11b9e876791edb1062b1fe34080ecfbcc75b52e4c8fe2639701fe36088ea5b9"
+# Only remote spokes enroll over the network (Task 11); empty until enrollment has a Route.
+enrollHost: ""

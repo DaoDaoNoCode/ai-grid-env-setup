@@ -1,0 +1,14 @@
+# Kuadrant owns this Limitador; Argo CD applies only spec.storage, server-side, and never prunes or
+# deletes it.
+apiVersion: limitador.kuadrant.io/v1alpha1
+kind: Limitador
+metadata:
+  name: limitador
+  namespace: kuadrant-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipPrune=true,Delete=false
+spec:
+  storage:
+    redis:
+      configSecretRef: { name: limitador-redis-url }   # rendered by Job limitador-redis-auth

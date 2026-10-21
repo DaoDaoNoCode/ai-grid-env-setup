@@ -1,0 +1,31 @@
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: facebook-opt-125m
+  namespace: aigrid-models
+spec:
+  # Served as facebook-opt-125m: MaaS calls a model by its MaaSModelRef name (no "/" allowed) and
+  # doesn't rewrite it, so the grid gateways and vLLM all use that one name.
+  model: { uri: hf://facebook/opt-125m, name: facebook-opt-125m }
+  baseRefs:
+    - name: v3-6-0-kserve-config-llm-template-cpu
+  replicas: 1
+  template:
+    containers:
+      - name: main
+        env:
+          - { name: VLLM_CPU_KVCACHE_SPACE, value: "1" }
+          # opt-125m ships no chat template, so vLLM refuses /v1/chat/completions, the API MaaS
+          # calls (ExternalModel apiFormat openai-chat). A minimal one joins the messages.
+          - name: VLLM_ADDITIONAL_ARGS
+            # KServe renders this spec's JSON as a Go template first, so the Jinja braces are escaped as Go
+            # raw strings (backticks survive JSON; quotes don't).
+            value: '--chat-template ''{% for m in messages %}{{`{{`}} m.content {{`}}`}} {% endfor %}'''
+        resources:
+          requests: { cpu: "1", memory: 8Gi }
+          limits: { cpu: "2", memory: 10Gi }
+  router:
+    scheduler: {}
+    route: {}
+    gateway:
+      refs: [{ name: openshift-ai-inference, namespace: openshift-ingress }]

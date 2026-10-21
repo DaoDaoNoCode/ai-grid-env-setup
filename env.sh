@@ -1,0 +1,29 @@
+# shellcheck shell=bash
+# Sourced by every bootstrap and verify script.
+export KUBEDIR="${KUBEDIR:-$HOME/.kube/aigrid}"
+# The hub. Scripts use its kubeconfig file's current context. First build:
+# HOST_KUBECONFIG=<workspace>/.config/aio/kubeconfig (passed by path only; set outside git).
+export HOST=host
+export HOST_KUBECONFIG="${HOST_KUBECONFIG:-$KUBEDIR/host}"
+# Spokes: ManagedCluster names that get AI Grid. local-cluster is the hub itself (D1, 2026-10-19).
+# A remote spoke's kubeconfig is $KUBEDIR/<name>, used to import it (Task 11) and by its verify checks.
+export SPOKES="${SPOKES:-local-cluster}"
+export SPOKE_ROLES="${SPOKE_ROLES:-local-cluster=combined}"       # ingress | inference | combined
+export SPOKE_LOCATIONS="${SPOKE_LOCATIONS:-local-cluster=us-east}"
+# The deployer's quay.io/rhoai login (QUAY_USER, QUAY_TOKEN), git-ignored, written by hack/quay-env.sh
+# (Task 2). Read only by bootstrap/25-hub-secrets.sh and the fallback bootstrap/10-pull-secret.sh (Task 5).
+export ENV_FILE="${ENV_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.env}"
+# Versions and pins (the nightly catalog, odh-gitops, the grid) live in apps/*/manifests/values.yaml,
+# which Argo CD reads; the scripts below only read the few facts they need from git.
+# D4: policy (ACM Policy rhoai-pull-secret) or script (fallback bootstrap/10-pull-secret.sh), as set
+# in git, so the script and the Policy can't both act.
+export PULL_SECRET_MODE=$(awk '$1=="pullSecretMode:"{print $2}' "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/apps/ai-grid-policies/manifests/values.yaml")
+# Keycloak's namespace on the hub, as apps/keycloak/application.yaml sets it (change both together).
+export KEYCLOAK_NS=keycloak
+export GRID_NS=grid                                 # the grid's namespace on every spoke (gridNs in git)
+export MODEL_NAME=facebook-opt-125m                 # the fixture model's MaaS ID (spokes/models/opt-125m)
+export LABEL_ENABLED=ai-grid/enabled LABEL_ROLE=ai-grid/role LABEL_LOCATION=location
+# The git source Argo CD builds the hub and spokes from. To try a branch, set both before make hub, e.g.
+# GIT_REPO=https://github.com/<you>/ai-grid-env-setup.git GIT_REF=<branch>.
+export GIT_REPO="${GIT_REPO:-https://github.com/ai-grid-cloud/ai-grid-env-setup.git}" GIT_REF="${GIT_REF:-main}"
+# Provider console images and commits are pinned in apps/console/manifests (runbook, Provider console).

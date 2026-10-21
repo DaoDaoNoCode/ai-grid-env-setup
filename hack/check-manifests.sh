@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Checks every directory Argo CD deploys from, without a cluster, and fails on one it can't check:
+#   bash hack/check-manifests.sh <gitRepo> <gitRef>
+# - a Helm chart is templated with the root ApplicationSet's gitRepo and gitRef (its subdirectories are
+#   the chart's own);
+# - a kustomization is built, including the console's remote base;
+# - a Kustomize Component renders only through the kustomization that names it, so its files are parsed;
+# - plain YAML is parsed, and each document needs apiVersion and kind, except Helm value files (a
+#   directory named values);
+# - any other file in a plain directory fails: Argo CD would deploy it, or nothing here checks it.
+set -euo pipefail
+repo=${1:?usage: hack/check-manifests.sh <gitRepo> <gitRef>} ref=${2:?usage: hack/check-manifests.sh <gitRepo> <gitRef>}
+cd "$(dirname "$0")/.."
+bad=0
+fail() { echo "FAIL      $*"; bad=1; }
+parse() { yq ea '.' "$@" >/dev/null; }
+
+charts=$(find apps/*/manifests hub spokes -name Chart.yaml -exec dirname {} \;)
+for d in $(find apps/*/manifests hub spokes -type d | sort); do
+  inside=; for c in $charts; do [[ $d == "$c"/* ]] && inside=1; done
+  [[ $inside ]] && continue
+  if [[ -f $d/Chart.yaml ]]; then
+    if grep -q '^dependencies:' "$d/Chart.yaml"; then helm dependency build "$d" >/dev/null; fi
+    helm template ci "$d" --set "gitRepo=$repo,gitRef=$ref" >/dev/null || { fail "$d: helm template"; continue; }
+    echo "helm      $d"
+  elif [[ -f $d/kustomization.yaml && $(yq '.kind' "$d/kustomization.yaml") == Component ]]; then
+    parse "$d"/*.yaml || { fail "$d: YAML"; continue; }
+    echo "component $d (parsed)"
+  elif [[ -f $d/kustomization.yaml ]]; then
+    kubectl kustomize "$d" >/dev/null || { fail "$d: kustomize"; continue; }
+    echo "kustomize $d"
+  else
+    files=$(find "$d" -maxdepth 1 -type f | sort)
+    [[ -z $files ]] && continue   # a parent of other targets
+    ok=0
+    for f in $files; do
+      [[ $f == *.yaml ]] || { fail "$f: not a chart, kustomization or .yaml file"; continue; }
+      parse "$f" || { fail "$f: YAML"; continue; }
+      if [[ $(basename "$d") != values && $(yq ea '[select(. != null) | has("apiVersion") and has("kind")] | all' "$f") != true ]]; then
+        fail "$f: a document without apiVersion and kind"; continue
+      fi
+      ok=$((ok + 1))
+    done
+    echo "yaml      $d ($ok of $(wc -w <<<"$files" | tr -d ' ') files parsed)"
+  fi
+done
+exit $bad

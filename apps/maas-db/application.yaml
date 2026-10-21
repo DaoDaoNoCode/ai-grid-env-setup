@@ -1,0 +1,22 @@
+# One Argo CD Application per apps/*/application.yaml.
+# The root ApplicationSet (bootstrap/applicationset.yaml) supplies the repository, revision,
+# and path apps/maas-db/manifests; this file supplies the rest.
+metadata:
+  name: maas-db
+  namespace: openshift-gitops
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: maas-db
+  syncPolicy:
+    automated:
+      # Never prune hub platform pieces: deleting a file must not delete ACM, Argo CD, or the database.
+      prune: false
+      selfHeal: true
+    retry:
+      limit: 20
+      backoff: { duration: 30s, factor: 2, maxDuration: 10m }
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

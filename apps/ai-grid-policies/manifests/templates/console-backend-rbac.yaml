@@ -1,0 +1,14 @@
+# The provider console's backend reports a cluster's provisioning state from this root Policy's
+# per-cluster compliance (D3). It may get this one Policy only: the per-cluster copies in each
+# cluster namespace carry rendered hub-template values (pull secret, grid key).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: ai-grid-provider-console-backend, namespace: ai-grid-policies }
+rules:
+  - { apiGroups: [policy.open-cluster-management.io], resources: [policies], resourceNames: [ai-grid-ready], verbs: [get] }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: ai-grid-provider-console-backend, namespace: ai-grid-policies }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: ai-grid-provider-console-backend }
+subjects: [{ kind: ServiceAccount, name: ai-grid-provider-console, namespace: ai-grid }]

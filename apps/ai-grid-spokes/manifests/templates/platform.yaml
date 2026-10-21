@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: ai-grid-platform, namespace: openshift-gitops }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  generators:
+    {{- include "ai-grid-spokes.generators" (list "ingress" "inference" "combined") | nindent 4 }}
+  template:
+    metadata: { name: 'platform-{{`{{.name}}`}}' }
+    spec:
+      project: default
+      sources:
+        - repoURL: https://github.com/opendatahub-io/odh-gitops.git
+          targetRevision: "{{ .Values.odhGitopsRef }}"
+          path: charts/rhai-on-openshift-chart
+          helm:
+            releaseName: rhai-on-openshift
+            valueFiles:
+              - $values/spokes/platform/values/common.yaml
+              - '$values/spokes/platform/values/{{`{{ if eq (index .metadata.labels "ai-grid/role") "inference" }}`}}inference{{`{{ else }}`}}ingress{{`{{ end }}`}}.yaml'
+        - repoURL: {{ required "gitRepo" .Values.gitRepo }}
+          targetRevision: {{ required "gitRef" .Values.gitRef }}
+          ref: values
+      destination: { server: '{{`{{.server}}`}}', namespace: odh-gitops }
+      ignoreDifferences:
+        # Only the listener hostname, which the MaaS operator writes; ignoring all of /spec would
+        # also hide changes from git (the TLS and parameters settings in spokes/platform/values/ingress.yaml).
+        - { group: gateway.networking.k8s.io, kind: Gateway, name: maas-default-gateway, namespace: openshift-ingress, jqPathExpressions: [".spec.listeners[].hostname"] }
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        # Unlimited: a spoke waits on its pull secret and node rollout (up to ~30 min) before the
+        # catalog serves; a finite limit would leave the app stopped at "failed previous sync attempt".
+        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true, RespectIgnoreDifferences=true]

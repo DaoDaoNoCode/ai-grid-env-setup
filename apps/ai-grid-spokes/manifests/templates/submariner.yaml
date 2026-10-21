@@ -1,0 +1,35 @@
+{{- /* Cross-cluster networking (Submariner with Globalnet): spokes reach each other's exported
+       Services as <name>.<namespace>.svc.clusterset.local, whatever their own CIDRs. */ -}}
+apiVersion: submariner.io/v1alpha1
+kind: Broker
+metadata:
+  name: submariner-broker
+  # ACM creates <cluster set>-broker for each ManagedClusterSet; the spokes are in set default.
+  namespace: default-broker
+  labels: { cluster.open-cluster-management.io/backup: submariner }
+spec:
+  # Globalnet, because demo clusters share the same default pod and service CIDRs.
+  globalnetEnabled: true
+  globalnetCIDRRange: 242.0.0.0/8
+  defaultGlobalnetClusterSize: 65536
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: ai-grid-submariner, namespace: openshift-gitops }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  generators:
+    {{- include "ai-grid-spokes.generators" (list) | nindent 4 }}
+  template:
+    metadata: { name: 'submariner-{{`{{.name}}`}}' }
+    spec:
+      project: default
+      source: { repoURL: {{ required "gitRepo" .Values.gitRepo | quote }}, targetRevision: {{ required "gitRef" .Values.gitRef | quote }}, path: hub/submariner }
+      # The hub, into the spoke's cluster namespace.
+      destination: { server: https://kubernetes.default.svc, namespace: '{{`{{.name}}`}}' }
+      syncPolicy:
+        automated: { selfHeal: true, prune: true }
+        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        syncOptions: [SkipDryRunOnMissingResource=true]

@@ -1,0 +1,7 @@
+{{- range .Values.placementNamespaces }}
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata: { name: default, namespace: {{ . }} }
+spec: { clusterSet: default }
+{{- end }}

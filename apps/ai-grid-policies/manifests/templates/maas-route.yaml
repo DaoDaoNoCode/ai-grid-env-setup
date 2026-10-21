@@ -1,0 +1,110 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: maas-route, namespace: ai-grid-policies }
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: maas-route }
+        spec:
+          severity: medium
+          object-templates:
+            # The MaaS gateway's Service is ClusterIP (spokes/platform/values/ingress.yaml points at
+            # this ConfigMap); the Route below is its public entry.
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: ConfigMap
+                metadata: { name: maas-gateway-options, namespace: openshift-ingress }
+                data:
+                  service: |
+                    spec:
+                      type: ClusterIP
+                  # System CAs plus the service CA (Policy maas-gateway-ca), so the gateway can
+                  # originate TLS to the grid's consumer gateway.
+                  deployment: |
+                    spec:
+                      template:
+                        spec:
+                          volumes:
+                            - name: aigrid-ca
+                              configMap: { name: aigrid-gateway-ca-bundle }
+                          containers:
+                            - name: istio-proxy
+                              volumeMounts:
+                                - { name: aigrid-ca, mountPath: /etc/pki/tls/certs/ca-bundle.crt, subPath: ca-bundle.crt, readOnly: true }
+            # The public entry point: maas.<this spoke's apps domain>, looked up on the spoke. The
+            # listener carries the same host name, because MaaS reports it as its public address
+            # (model URLs, the portal's /v1/tenants discovery); git holds no host name. Only this
+            # field is set: ACM merges list items by name, and Argo CD ignores it.
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: Gateway
+                metadata: { name: maas-default-gateway, namespace: openshift-ingress }
+                spec:
+                  listeners:
+                    - name: https
+                      hostname: {{`'maas.{{ (lookup "config.openshift.io/v1" "Ingress" "" "cluster").spec.domain }}'`}}
+            # Passthrough: the gateway terminates TLS itself, and its listener answers only the
+            # SNI maas.<domain>, which a re-encrypting router wouldn't send.
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: route.openshift.io/v1
+                kind: Route
+                metadata: { name: maas-gateway-route, namespace: openshift-ingress }
+                spec:
+                  host: {{`'maas.{{ (lookup "config.openshift.io/v1" "Ingress" "" "cluster").spec.domain }}'`}}
+                  to: { kind: Service, name: maas-default-gateway-maas-gateway-class, weight: 100 }
+                  port: { targetPort: 443 }
+                  tls: { termination: passthrough, insecureEdgeTerminationPolicy: Redirect }
+    # The listener's certificate names maas.<apps domain> only. A wildcard would let a browser reuse
+    # its HTTP/2 connection to the gateway for every other apps host at the same address (Keycloak,
+    # the console), which the gateway answers with 404. Where cert-manager issued the router's own
+    # certificate, the same issuer issues this one; otherwise the router's certificate is copied.
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: maas-gateway-cert }
+        spec:
+          severity: medium
+          object-templates-raw: |
+            {{`{{- $domain := (lookup "config.openshift.io/v1" "Ingress" "" "cluster").spec.domain }}
+            {{- $ic := lookup "operator.openshift.io/v1" "IngressController" "openshift-ingress-operator" "default" }}
+            {{- $name := "router-certs-default" }}
+            {{- if and $ic.spec (hasKey $ic.spec "defaultCertificate") }}{{ $name = $ic.spec.defaultCertificate.name }}{{ end }}
+            {{- $routerCert := dict }}
+            {{- if lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" "certificates.cert-manager.io" }}
+            {{- $routerCert = lookup "cert-manager.io/v1" "Certificate" "openshift-ingress" $name }}
+            {{- end }}
+            {{- if $routerCert }}
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: cert-manager.io/v1
+                kind: Certificate
+                metadata: { name: maas-gw-public-tls, namespace: openshift-ingress }
+                spec:
+                  secretName: maas-gw-public-tls
+                  dnsNames: ['maas.{{ $domain }}']
+                  issuerRef: { name: '{{ $routerCert.spec.issuerRef.name }}', kind: '{{ $routerCert.spec.issuerRef.kind }}', group: cert-manager.io }
+                  privateKey: { rotationPolicy: Always }
+            {{- else }}
+            - complianceType: mustonlyhave
+              objectDefinition:
+                apiVersion: v1
+                kind: Secret
+                metadata: { name: maas-gw-public-tls, namespace: openshift-ingress }
+                type: kubernetes.io/tls
+                data:
+                  tls.crt: '{{ fromSecret "openshift-ingress" $name "tls.crt" }}'
+                  tls.key: '{{ fromSecret "openshift-ingress" $name "tls.key" }}'
+            {{- end }}`}}
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: maas-route, namespace: ai-grid-policies }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-ingress }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: maas-route }]

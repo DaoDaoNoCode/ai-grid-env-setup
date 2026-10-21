@@ -1,0 +1,14 @@
+# MaaS reaches models through the grid: the consumer gateway is the "external" provider. This
+# nightly's ai-gateway-controller supports only apikey auth and always originates HTTPS to port
+# 443 (it ignores the port and TLS annotations), so the consumer gateway serves TLS on Service
+# port 443 with a service-CA certificate.
+apiVersion: inference.opendatahub.io/v1alpha1
+kind: ExternalProvider
+metadata:
+  name: grid-provider
+  namespace: models-as-a-service
+spec:
+  provider: openai
+  endpoint: grid-gateway.grid.svc.cluster.local
+  # The grid gateway ignores it; MaaS requires one. Policy grid-upstream-key generates it on the spoke.
+  auth: { type: apikey, secretRef: { name: grid-maas-upstream } }

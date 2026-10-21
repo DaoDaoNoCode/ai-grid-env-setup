@@ -1,0 +1,46 @@
+# Model spokes: the provider gateway serves grid peers on the site identity and forwards to the
+# local model over TLS; its fixed-IP Service comes from spokes/grid/provider.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: ai-grid-grid-provider, namespace: openshift-gitops }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  generators:
+    {{- include "ai-grid-spokes.generators" (list "inference" "combined") | nindent 4 }}
+  template:
+    metadata: { name: 'grid-provider-{{`{{.name}}`}}' }
+    spec:
+      project: default
+      sources:
+        - repoURL: ghcr.io/praxis-proxy/charts
+          chart: praxis-gateway
+          targetRevision: "{{ .Values.gridVersion }}"
+          helm:
+            releaseName: grid-provider
+            values: |
+              image: { repository: ghcr.io/praxis-proxy/grid-gateway, tag: "v{{ .Values.gridVersion }}@{{ required "gridGatewayDigest" .Values.gridGatewayDigest }}" }
+              gatewayConfig:
+                role: provider
+                localSite: {{`{{.name}}`}}
+                # The callers present this site's identity (the hub site's leaf certificate, D8).
+                peerTrust: { mode: pin, certDigests: ["{{ .Values.hubSiteDigest }}"] }
+                backends:
+                  local:
+                    endpoint: "{{ .Values.modelBackendIP }}:8000"
+                    transport:
+                      mode: tls
+                      sni: {{ .Values.modelName }}-kserve-workload-svc.aigrid-models.svc
+                      ca: { configMap: openshift-service-ca.crt, key: service-ca.crt }
+              tls: { enabled: true, existingSecret: grid-site-identity, caSecret: grid-ca }
+              port: { containerPort: 8443, name: https }
+              service: { type: ClusterIP, port: 8443 }
+        - repoURL: {{ required "gitRepo" .Values.gitRepo | quote }}
+          targetRevision: {{ required "gitRef" .Values.gitRef | quote }}
+          path: spokes/grid/provider
+      destination: { server: '{{`{{.server}}`}}', namespace: {{ .Values.gridNs }} }
+      syncPolicy:
+        automated: { selfHeal: true }
+        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        syncOptions: [CreateNamespace=true]

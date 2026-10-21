@@ -1,0 +1,33 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: tenant-oidc, namespace: ai-grid-policies }
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: tenant-oidc }
+        spec:
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: maas.opendatahub.io/v1alpha1
+                kind: AITenant
+                metadata: { name: models-as-a-service, namespace: ai-tenants }
+                spec:
+                  # The chart's MaaS gateway; without it the controller looks for a Gateway named
+                  # after the tenant (models-as-a-service) and never deploys maas-api.
+                  gateway: { name: maas-default-gateway }
+                  oidc:
+                    issuerUrl: {{`'{{hub fromConfigMap "ai-grid-policies" "ai-grid-hub-info" "tenantIssuer" hub}}'`}}
+                    clientId: {{`'{{hub fromConfigMap "ai-grid-policies" "ai-grid-hub-info" "tenantClientId" hub}}'`}}
+                    ttl: 300
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: tenant-oidc, namespace: ai-grid-policies }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-ingress }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: tenant-oidc }]

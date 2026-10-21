@@ -1,0 +1,5 @@
+apiVersion: v2
+name: ai-grid-policies
+description: ACM Policies that prepare AI Grid spokes, and the Placements that pick them by label.
+type: application
+version: 0.1.0

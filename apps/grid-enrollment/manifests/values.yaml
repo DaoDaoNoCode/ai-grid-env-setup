@@ -1,0 +1,9 @@
+grid-enrollment:
+  # No Route yet: the hub site joins through hubSite, and only a remote spoke (Task 11) needs one.
+  # The chart requires route.host for its serving certificate (D8 decides where that host lives).
+  route: { enabled: false }
+  hubSite: { name: local-cluster, namespace: grid }
+  invitePolicy: { enabled: true, namespace: grid, clusterSet: default }
+  db:
+    builtin:
+      pvcAnnotations: { helm.sh/resource-policy: keep }

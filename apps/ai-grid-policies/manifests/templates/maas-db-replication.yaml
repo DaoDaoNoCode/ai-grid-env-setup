@@ -1,0 +1,69 @@
+{{- /* Remote ingress spokes (not the hub's own local-cluster) keep a read replica of maas-db
+       (spokes/maas-db-replica). This copies what the replica needs from the hub's primary: the
+       streaming_replica client certificate, the CA, and the app credentials. maas-api can't read
+       from a replica yet, so the replica is groundwork. */ -}}
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata: { name: ai-grid-ingress-remote, namespace: maas-db }
+spec:
+  clusterSets: [default]
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchLabels: { ai-grid/enabled: "true" }
+          matchExpressions:
+            - { key: ai-grid/role, operator: In, values: [ingress, combined] }
+            - { key: name, operator: NotIn, values: [local-cluster] }
+  tolerations:
+    - { key: cluster.open-cluster-management.io/unreachable, operator: Exists }
+    - { key: cluster.open-cluster-management.io/unavailable, operator: Exists }
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: maas-db-replication, namespace: maas-db }
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: maas-db-replication }
+        spec:
+          severity: high
+          # fromSecret returns base64 data, encrypted in transit and decrypted on the spoke.
+          object-templates:
+            - complianceType: musthave
+              objectDefinition: { apiVersion: v1, kind: Namespace, metadata: { name: maas-db } }
+            - complianceType: mustonlyhave
+              objectDefinition:
+                apiVersion: v1
+                kind: Secret
+                metadata: { name: maas-db-replication, namespace: maas-db }
+                type: kubernetes.io/tls
+                data:
+                  tls.crt: {{`'{{hub fromSecret "maas-db" "maas-db-replication" "tls.crt" hub}}'`}}
+                  tls.key: {{`'{{hub fromSecret "maas-db" "maas-db-replication" "tls.key" hub}}'`}}
+            - complianceType: mustonlyhave
+              objectDefinition:
+                apiVersion: v1
+                kind: Secret
+                metadata: { name: maas-db-ca, namespace: maas-db }
+                type: Opaque
+                data:
+                  ca.crt: {{`'{{hub fromSecret "maas-db" "maas-db-ca" "ca.crt" hub}}'`}}
+            - complianceType: mustonlyhave
+              objectDefinition:
+                apiVersion: v1
+                kind: Secret
+                metadata: { name: maas-db-app, namespace: maas-db }
+                type: kubernetes.io/basic-auth
+                data:
+                  username: {{`'{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}'`}}
+                  password: {{`'{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}'`}}
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: maas-db-replication, namespace: maas-db }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-ingress-remote }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: maas-db-replication }]

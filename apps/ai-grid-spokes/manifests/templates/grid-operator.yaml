@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: ai-grid-grid-operator, namespace: openshift-gitops }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  generators:
+    {{- include "ai-grid-spokes.generators" (list) | nindent 4 }}
+  template:
+    metadata: { name: 'grid-operator-{{`{{.name}}`}}' }
+    spec:
+      project: default
+      source:
+        repoURL: ghcr.io/praxis-proxy/charts
+        chart: grid-operator
+        targetRevision: "{{ .Values.gridVersion }}"
+        helm:
+          releaseName: grid-operator
+          values: |
+            rbac: { enrollmentNamespace: grid-enrollment }
+            {{`{{- if ne (index .metadata.labels "ai-grid/role") "ingress" }}`}}
+            grid:
+              id: {{ .Values.gridId }}
+              network: {{ .Values.gridNetwork }}
+              # The model this site serves, registered as its InferenceProvider.
+              providers:
+                {{ .Values.modelName }}:
+                  model: {{ .Values.modelName }}
+                  backendKind: local
+                  endpoint: https://{{ .Values.modelName }}-kserve-workload-svc.aigrid-models.svc:8000
+            # The provider gateway's fixed ClusterIP: the address the operator advertises and probes
+            # (no LoadBalancer to discover), which moves the site from Discovered to Active.
+            gateway: { address: "{{ .Values.providerIP }}:8443" }
+            {{`{{- else }}`}}
+            grid: { id: {{ .Values.gridId }}, network: {{ .Values.gridNetwork }} }
+            {{`{{- end }}`}}
+            {{`{{- if eq .name "local-cluster" }}`}}
+            # One site needs no gossip load balancer (AWS's default ELB carries no UDP, and the
+            # operator waits for its address); Task 11 switches the hub to an NLB when a peer joins.
+            swim: { siteName: local-cluster, service: { type: ClusterIP } }
+            enrollment: { enabled: false }
+            {{`{{- else }}`}}
+            swim: { siteName: {{`{{.name}}`}} }
+            platform: aws
+            enrollment: { enabled: true, url: "https://{{ .Values.enrollHost }}" }
+            {{`{{- end }}`}}
+      destination: { server: '{{`{{.server}}`}}', namespace: {{ .Values.gridNs }} }
+      syncPolicy:
+        automated: { selfHeal: true }
+        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        syncOptions: [CreateNamespace=true]

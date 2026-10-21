@@ -1,0 +1,205 @@
+# Server-side applied: Argo CD owns only these fields of the operator's ArgoCD instance.
+apiVersion: argoproj.io/v1beta1
+kind: ArgoCD
+metadata:
+  name: openshift-gitops
+  namespace: openshift-gitops
+spec:
+  # Once ACM hands it clusters, 2Gi runs out during startup.
+  controller:
+    resources:
+      requests: { memory: 2Gi }
+      limits: { memory: 4Gi }
+  # Argo CD has no built-in health for these kinds; without a check it calls them Healthy at once.
+  resourceHealthChecks:
+    - group: k8s.keycloak.org
+      kind: Keycloak
+      check: |
+        hs = { status = "Progressing", message = "Waiting for Keycloak status" }
+        if obj.status ~= nil and obj.status.conditions ~= nil then
+          for _, c in ipairs(obj.status.conditions) do
+            if c.type == "HasErrors" and c.status == "True" then hs.status = "Degraded"; hs.message = c.message; return hs end
+            if c.type == "Ready" and c.status == "True" then hs.status = "Healthy"; hs.message = "Ready" end
+          end
+        end
+        return hs
+    - group: k8s.keycloak.org
+      kind: KeycloakRealmImport
+      check: |
+        hs = { status = "Progressing", message = "Waiting for the realm import" }
+        if obj.status ~= nil and obj.status.conditions ~= nil then
+          for _, c in ipairs(obj.status.conditions) do
+            if c.type == "HasErrors" and c.status == "True" then hs.status = "Degraded"; hs.message = c.message; return hs end
+            if c.type == "Done" and c.status == "True" then hs.status = "Healthy"; hs.message = "Imported" end
+          end
+        end
+        return hs
+    - group: operator.open-cluster-management.io
+      kind: MultiClusterHub
+      check: |
+        hs = { status = "Progressing", message = "Waiting for MultiClusterHub status" }
+        if obj.status ~= nil and obj.status.phase ~= nil then
+          hs.message = obj.status.phase
+          if obj.status.phase == "Running" then hs.status = "Healthy" end
+        end
+        return hs
+    - group: postgresql.cnpg.io
+      kind: Cluster
+      check: |
+        hs = {}
+        if obj.status == nil or obj.status.phase == nil then
+          hs.status = "Progressing"
+          hs.message = "Waiting for CloudNativePG cluster status"
+          return hs
+        end
+        if obj.status.phase == "Cluster in healthy state" then
+          hs.status = "Healthy"
+          hs.message = obj.status.phase
+          return hs
+        end
+        local degradedPhases = {
+          ["Cluster is unrecoverable and needs manual intervention"] = true,
+          ["Cluster cannot proceed to reconciliation due to an unknown plugin being required"] = true,
+          ["Cluster cannot proceed to reconciliation due to an error while interacting with plugins"] = true,
+          ["Cluster has incomplete or invalid image catalog"] = true,
+          ["Invalid cluster definition"] = true
+        }
+        if degradedPhases[obj.status.phase] then
+          hs.status = "Degraded"
+          hs.message = obj.status.phase
+          if obj.status.phaseReason ~= nil then
+            hs.message = hs.message .. ": " .. obj.status.phaseReason
+          end
+          return hs
+        end
+        hs.status = "Progressing"
+        hs.message = obj.status.phase
+        return hs
+    - group: limitador.kuadrant.io
+      kind: Limitador
+      check: |
+        hs = {}
+        if obj.status == nil or obj.status.conditions == nil then
+          hs.status = "Progressing"
+          hs.message = "Waiting for Limitador status"
+          return hs
+        end
+        if obj.metadata.generation ~= nil and obj.status.observedGeneration ~= nil and obj.status.observedGeneration < obj.metadata.generation then
+          hs.status = "Progressing"
+          hs.message = "Waiting for the current Limitador generation"
+          return hs
+        end
+        for _, condition in ipairs(obj.status.conditions) do
+          if condition.type == "Ready" then
+            if condition.status == "True" then
+              hs.status = "Healthy"
+              hs.message = condition.message
+              return hs
+            elseif condition.status == "False" then
+              hs.status = "Degraded"
+              hs.message = condition.message
+              return hs
+            end
+          end
+        end
+        hs.status = "Progressing"
+        hs.message = "Waiting for the Limitador Ready condition"
+        return hs
+    - group: multicluster.x-k8s.io
+      kind: ServiceExport
+      check: |
+        hs = {}
+        if obj.status == nil or obj.status.conditions == nil then
+          hs.status = "Progressing"
+          hs.message = "Waiting for ServiceExport status"
+          return hs
+        end
+        for _, condition in ipairs(obj.status.conditions) do
+          if condition.type == "Valid" and condition.status == "False" then
+            hs.status = "Degraded"
+            hs.message = condition.message
+            return hs
+          end
+          if condition.type == "Ready" then
+            if condition.status == "True" then
+              hs.status = "Healthy"
+              hs.message = condition.message
+              return hs
+            elseif condition.status == "False" then
+              hs.status = "Degraded"
+              hs.message = condition.message
+              return hs
+            end
+          end
+        end
+        hs.status = "Progressing"
+        hs.message = "Waiting for the ServiceExport Ready condition"
+        return hs
+    - group: addon.open-cluster-management.io
+      kind: ManagedClusterAddOn
+      check: |
+        hs = {}
+        if obj.status == nil or obj.status.conditions == nil then
+          hs.status = "Progressing"
+          hs.message = "Waiting for ManagedClusterAddOn status"
+          return hs
+        end
+        local available = false
+        local progressing = false
+        local degradedTypes = {
+          Degraded = true,
+          SubmarinerAgentDegraded = true,
+          SubmarinerConnectionDegraded = true,
+          RouteAgentConnectionDegraded = true
+        }
+        for _, condition in ipairs(obj.status.conditions) do
+          if condition.status == "True" then
+            if degradedTypes[condition.type] then
+              hs.status = "Degraded"
+              hs.message = condition.message
+              return hs
+            elseif condition.type == "Progressing" then
+              progressing = true
+            elseif condition.type == "Available" then
+              available = true
+            end
+          end
+        end
+        if progressing then
+          hs.status = "Progressing"
+          hs.message = "ManagedClusterAddOn is progressing"
+          return hs
+        end
+        if available then
+          hs.status = "Healthy"
+          hs.message = "ManagedClusterAddOn is available"
+          return hs
+        end
+        hs.status = "Progressing"
+        hs.message = "Waiting for the ManagedClusterAddOn Available condition"
+        return hs
+    - group: submarineraddon.open-cluster-management.io
+      kind: SubmarinerConfig
+      check: |
+        hs = {}
+        if obj.status == nil or obj.status.conditions == nil then
+          hs.status = "Progressing"
+          hs.message = "Waiting for SubmarinerConfig status"
+          return hs
+        end
+        for _, condition in ipairs(obj.status.conditions) do
+          if condition.type == "SubmarinerConfigApplied" then
+            if condition.status == "True" then
+              hs.status = "Healthy"
+              hs.message = condition.message
+              return hs
+            elseif condition.status == "False" then
+              hs.status = "Degraded"
+              hs.message = condition.message
+              return hs
+            end
+          end
+        end
+        hs.status = "Progressing"
+        hs.message = "Waiting for the SubmarinerConfigApplied condition"
+        return hs

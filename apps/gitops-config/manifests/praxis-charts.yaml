@@ -1,0 +1,8 @@
+# The grid's public OCI Helm charts (no credentials).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: praxis-charts
+  namespace: openshift-gitops
+  labels: { argocd.argoproj.io/secret-type: repository }
+stringData: { type: helm, name: praxis-charts, url: ghcr.io/praxis-proxy/charts, enableOCI: "true" }

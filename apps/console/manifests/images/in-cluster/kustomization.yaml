@@ -1,0 +1,12 @@
+# Fallback image source: the hub's internal registry, filled by the BuildConfigs in builds.yaml (pinned
+# GitHub commits) or, as the fallback for unmerged work, by the binary BuildConfigs from a local checkout.
+# Containers are matched by name, not by the base's image names, which change upstream.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target: { kind: Deployment, name: ai-grid-provider-console }
+    patch: |
+      - { op: test, path: /spec/template/spec/containers/1/name, value: bff }
+      - { op: replace, path: /spec/template/spec/containers/1/image, value: "image-registry.openshift-image-registry.svc:5000/ai-grid/ai-grid-provider-console:latest" }
+      - { op: test, path: /spec/template/spec/containers/2/name, value: ai-grid-backend }
+      - { op: replace, path: /spec/template/spec/containers/2/image, value: "image-registry.openshift-image-registry.svc:5000/ai-grid/ai-grid-backend:latest" }
