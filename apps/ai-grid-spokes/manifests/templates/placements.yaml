@@ -21,3 +21,25 @@ spec:
     - { key: cluster.open-cluster-management.io/unavailable, operator: Exists }
 {{- end }}
 {{- end }}
+{{- /* The cross-cluster network (Submariner): the hub's own local-cluster always, since the hub's
+       maas-db and grid enrollment are reached through it, plus every grid member, plus a cluster
+       labelled ai-grid/network=true while it's prepared for the grid. Predicates are ORed. By name
+       or label only: clusterset default also holds clusters that aren't ours. */ -}}
+{{- define "ai-grid.network-placement" -}}
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata: { name: ai-grid-network, namespace: {{ . }} }
+spec:
+  clusterSets: [default]
+  predicates:
+    - requiredClusterSelector: { labelSelector: { matchLabels: { name: local-cluster } } }
+    - requiredClusterSelector: { labelSelector: { matchLabels: { ai-grid/enabled: "true" } } }
+    - requiredClusterSelector: { labelSelector: { matchLabels: { ai-grid/network: "true" } } }
+  tolerations:
+    - { key: cluster.open-cluster-management.io/unreachable, operator: Exists }
+    - { key: cluster.open-cluster-management.io/unavailable, operator: Exists }
+{{- end }}
+{{- range list "openshift-gitops" }}
+---
+{{ include "ai-grid.network-placement" . }}
+{{- end }}

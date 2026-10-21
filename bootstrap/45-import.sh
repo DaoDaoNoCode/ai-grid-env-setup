@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Imports each remote spoke into the hub's ACM, so the console can add it to AI Grid:
 #   bash bootstrap/45-import.sh            (every remote spoke in SPOKES; kubeconfig $KUBEDIR/<name>)
-# Importing isn't membership: the ManagedCluster gets no ai-grid/* labels. ACM uses the spoke's
+# Importing isn't membership: the ManagedCluster gets no ai-grid/enabled or ai-grid/role. ACM uses the spoke's
 # kubeconfig once, through its auto-import Secret, to install the klusterlet, and then deletes the
 # Secret. The kubeconfig reaches the hub through a file descriptor, never argv or output.
 source "$(dirname "$0")/lib.sh"
@@ -12,7 +12,9 @@ apiVersion: cluster.open-cluster-management.io/v1
 kind: ManagedCluster
 metadata:
   name: $s
-  labels: { cluster.open-cluster-management.io/clusterset: default, cloud: auto-detect, vendor: auto-detect }
+  # ai-grid/network: on the cross-cluster network (Submariner, Placement ai-grid-network), so it can
+  # reach the hub's maas-db and grid enrollment once it's added to AI Grid.
+  labels: { cluster.open-cluster-management.io/clusterset: default, cloud: auto-detect, vendor: auto-detect, ai-grid/network: "true" }
 spec: { hubAcceptsClient: true }
 YAML
   # ACM creates the cluster's namespace on the hub once it registers the ManagedCluster.
