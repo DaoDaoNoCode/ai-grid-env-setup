@@ -60,6 +60,13 @@ console and the databases, and no OpenShift AI.
 | 6 | `CONFIRM=local-cluster bash bootstrap/98-uninstall-spoke.sh local-cluster`, then `SPOKES=site-a bash bootstrap/36-portal-clients.sh` | the hub leaves the grid and drops OpenShift AI; its Submariner, `maas-db` and `grid` stay | 159 s |
 | 7 | `SPOKES=site-a SPOKE_ROLES=site-a=combined SPOKE_LOCATIONS=site-a=us-east make verify` | 177 checks (221 with both spokes) | about 3 min |
 
+Spokes reach the hub's exports at `local-cluster.<svc>.<ns>.svc.clusterset.local`, Lighthouse's
+name for the hub's own export, so another member exporting a Service of the same name can't answer
+for it. Enrollment's serving certificate names it through `serving.extraDnsNames`; the bootstrap Job
+that issues the certificate is a hook, and Argo CD runs hooks only when something else changed, so
+after changing that value sync `grid-enrollment` by hand and restart `deploy/grid-enrollment`
+(`verify/05` checks the name).
+
 What a remote spoke needed that `local-cluster` never did, each now in git with a check:
 Lighthouse imports a Service only into a namespace that exists on the importing cluster (Policy
 `clusterset-namespaces`); maas-api's own egress policy admits 5432 only to in-cluster postgres
