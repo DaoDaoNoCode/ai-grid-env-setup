@@ -101,7 +101,7 @@ del_app models LLMInferenceService; gone 300 llminferenceservice facebook-opt-12
 del_app models
 
 log "the grid's objects (namespace $GRID_NS and the hub site's identity stay)"
-del_app grid-consumer; del_app grid-provider
+del_app grid-consumer; del_app grid-provider-export; del_app grid-provider
 del_app grid-operator InferenceProvider GridSite GridNetwork AgentToolProvider
 for k in inferenceproviders gridsites gridnetworks; do
   for o in $(kc $s get $k.grid.praxis.fast -o name 2>/dev/null); do gone 120 "$o"; done

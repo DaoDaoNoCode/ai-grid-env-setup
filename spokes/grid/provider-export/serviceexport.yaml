@@ -1,0 +1,8 @@
+# Other clusters' consumer gateways call this site's provider over Submariner. They dial its Globalnet
+# address (GlobalIngressIP grid-provider-fixed, providerGlobalIPs in apps/ai-grid-spokes): the
+# gateways refuse host names, and the clusterset name would resolve to a private address anyway.
+apiVersion: multicluster.x-k8s.io/v1alpha1
+kind: ServiceExport
+metadata:
+  name: grid-provider-fixed
+  namespace: grid

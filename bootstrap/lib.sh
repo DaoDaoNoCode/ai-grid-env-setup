@@ -24,6 +24,8 @@ hc() { local c=$1; shift; helm --kubeconfig "$(kcfg "$c")" --kube-context "$(kct
 # "a=x b=y" lookups for SPOKE_ROLES and SPOKE_LOCATIONS.
 kv() { tr ' ' '\n' <<<"$1" | awk -F= -v k="$2" '$1==k{print $2}'; }
 role_of() { kv "$SPOKE_ROLES" "$1"; }
+# A spoke's role as the console set it (its ManagedCluster's ai-grid/role on the hub), else SPOKE_ROLES.
+site_role() { local r; r=$(kc host get managedcluster "$1" -o json 2>/dev/null | jq -r '.metadata.labels["ai-grid/role"] // ""'); echo "${r:-$(role_of "$1")}"; }
 location_of() { kv "$SPOKE_LOCATIONS" "$1"; }
 SITES="" MODEL_SITES=""
 for s in $SPOKES; do
@@ -43,4 +45,4 @@ on_node() {
   kc "$1" debug "node/$n" -q -- chroot /host sh -c "$2"
 }
 # verify scripts call these inside `bash -c`, which only sees exported functions.
-export -f log die kcfg kctx kc hc kv role_of location_of multi_only with_cluster cp_topology on_node
+export -f log die kcfg kctx kc hc kv role_of site_role location_of multi_only with_cluster cp_topology on_node

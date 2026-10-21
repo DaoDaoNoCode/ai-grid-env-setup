@@ -21,6 +21,12 @@ hubSiteDigest: "e11b9e876791edb1062b1fe34080ecfbcc75b52e4c8fe2639701fe36088ea5b9
 # refuses every caller.
 siteDigests:
   site-a: "0cbd93eaf3bf393c2293412f42fe0ed2f2f48d75d91408ddeefee9f689507d25"
+# Inference sites that other clusters' consumers call: the Globalnet address of each one's exported
+# provider Service (spokes/grid/provider-export). A literal IP, because the gateways refuse host
+# names. It changes on every build: bootstrap/50-grid-hub-info.sh prints it once the site is added;
+# commit it here. Empty: every consumer calls only its own site's provider.
+providerGlobalIPs: {}
+#  site-b: "242.x.y.z"
 # Remote spokes enroll with the hub's enrollment over Submariner (apps/grid-enrollment).
 enrollHost: local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local:8443
 # A remote site's gossip Service. ClusterIP while it's the only remote site: it has no peer, and a
