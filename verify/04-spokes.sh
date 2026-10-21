@@ -48,6 +48,11 @@ for s in $SPOKES; do
     maas=$(maas_url $s)
     uat "$s MaaS health 200"  "maas-default-gateway not Programmed, or its listener hostname differs: kc $s get gateway -n openshift-ingress" \
       bash -c "curl -s -o /dev/null -w '%{http_code}' $maas/maas-api/health | grep -qx 200"
+    # Authorino listens without TLS (Policy authorino-service-ca). odh-model-controller adds a
+    # <gateway>-authn-ssl EnvoyFilter forcing TLS to it if a gateway reconciles before Authorino
+    # exists, and never removes it: every authenticated call then gets 500.
+    uat "$s gateway reaches Authorino in plaintext" "a stale <gateway>-authn-ssl EnvoyFilter in openshift-ingress (Policy authorino-service-ca removes it): kc $s get envoyfilter -n openshift-ingress" \
+      bash -c "! kc $s get envoyfilter -n openshift-ingress -o name | grep -q -- '-authn-ssl\$'"
   else
     uat "$s has no MaaS"      "inference values enabled aigateway" bash -c "! kc $s get deploy maas-api -n redhat-ai-gateway-infra"
   fi
