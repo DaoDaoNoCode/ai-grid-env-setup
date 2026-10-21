@@ -35,5 +35,10 @@ YAML
       --dry-run=client -o yaml | kc $HOST apply -f - >/dev/null
     log "$s: auto-import started"
   fi
-  kc $HOST wait managedcluster/$s --for=condition=ManagedClusterConditionAvailable --timeout=15m
+  # ACM deletes the auto-import Secret only after a successful import; on a timeout it would keep
+  # the spoke's admin kubeconfig, so delete it here.
+  kc $HOST wait managedcluster/$s --for=condition=ManagedClusterConditionAvailable --timeout=15m || {
+    kc $HOST delete secret auto-import-secret -n $s --ignore-not-found >/dev/null
+    die "$s not available after 15m; deleted its auto-import-secret (the spoke's admin kubeconfig). Fix the cause and rerun"
+  }
 done
