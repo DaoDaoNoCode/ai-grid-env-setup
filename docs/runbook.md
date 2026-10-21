@@ -185,6 +185,13 @@ model plumbing (the grid-backend Service, NetworkPolicy allow-grid-provider) sta
   replica in `spokes/maas-db-replica` has no NetworkPolicy; and the hub's `maas-db-ingress` admits
   all of Globalnet `242.0.0.0/8`, so any cluster in the set can reach port 5432 (narrow it to the
   ingress spokes' Globalnet CIDRs).
+- **Removing an unreachable spoke can leave its Submariner app stuck deleting.** Remove makes Argo CD
+  delete `submariner-<spoke>`, whose resources finalizer waits for the add-on and SubmarinerConfig to
+  go; ACM's cleanup of them may never finish while the spoke can't be reached. Unstick it on the hub:
+  `kc host delete managedclusteraddon submariner -n <spoke> --wait=false`, then, if the app still
+  hangs, `kc host patch applications.argoproj.io submariner-<spoke> -n openshift-gitops --type json
+  -p '[{"op":"remove","path":"/metadata/finalizers"}]'`. Remove taking a spoke off the network is
+  designed but not yet verified on a cluster.
 - **Metrics have one copy.** S4 runs one replica on one volume; losing the volume loses stored metrics.
 
 ## Fixes found along the way
