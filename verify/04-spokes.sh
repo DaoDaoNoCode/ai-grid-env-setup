@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"
 h=$HOST
+# A hub that isn't a grid member keeps no OpenShift AI (removed with bootstrap/98-uninstall-spoke.sh).
+if [[ " $SPOKES " != *" local-cluster "* ]]; then
+  uat "hub runs no OpenShift AI" "local-cluster left the grid but still has a DataScienceCluster or OpenShift AI's operator: CONFIRM=local-cluster bash bootstrap/98-uninstall-spoke.sh local-cluster" \
+    bash -c "[ -z \"\$(kc $h get datasciencecluster -o name 2>/dev/null)\" ] && ! kc $h get ns redhat-ods-operator >/dev/null 2>&1"
+  uat "hub keeps the network" "Submariner left local-cluster: the hub's maas-db and enrollment are reached through it (Placement ai-grid-network)" \
+    bash -c "kc $h get managedclusteraddon submariner -n local-cluster -o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}' | grep -qx True"
+fi
 uat "app ai-grid-spokes"     "Argo CD app not Synced/Healthy: a Helm render error (an unescaped {{ }}) or a sync retry" app ai-grid-spokes
 # Synced only: a Policy still in inform is NonCompliant by design, which Argo CD shows as Degraded.
 uat "app ai-grid-policies synced" "a Helm render error (an unescaped {{ }}) in apps/ai-grid-policies" \

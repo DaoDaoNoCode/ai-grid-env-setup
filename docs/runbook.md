@@ -43,6 +43,33 @@ backend addresses (`modelBackendIP`, `providerIP`) assume the default `172.30.0.
 `make all` is `hub` then `spokes`; it doesn't add any cluster to the grid. Every script is safe to rerun (`make all` on the built hub,
 2026-10-19: no changes, `make verify` ALL PASS).
 
+### A remote spoke, and a hub without OpenShift AI
+
+Built 2026-10-21 on two demo.redhat.com clusters (OpenShift 4.21, AWS, same region, same pod and
+Service CIDRs): the hub, and a second cluster imported as `site-a` (role `combined`). Afterwards the
+hub's `local-cluster` left the grid, so the hub runs ACM, Argo CD, Keycloak, grid enrollment, the
+console and the databases, and no OpenShift AI.
+
+| Step | Command | What happens | Time |
+|---|---|---|---|
+| 1 | `SPOKES="local-cluster site-a" bash bootstrap/45-import.sh` (kubeconfig at `$KUBEDIR/site-a`) | ManagedCluster `site-a`, no `ai-grid/enabled`; `ai-grid/network=true` puts it on Submariner with the hub (Placement `ai-grid-network`, load-balancer mode: no AWS credentials) | joined 13 s; tunnel up about 4 min later |
+| 2 | add `invites.<site>` to `apps/grid-enrollment/manifests/values.yaml` and `spokes/clusters/<site>/models`, commit | the invite Job mints a 24 h token; ACM delivers it to the site | about 1 min |
+| 3 | `SPOKES="… site-a" bash bootstrap/36-portal-clients.sh` | `maas-cli` takes the site's portal callback | seconds |
+| 4 | **Add to AI Grid** in the console (`combined`, a location) | as for `local-cluster`; the site enrolls with enrollment over Submariner (`grid-enrollment.grid-enrollment.svc.clusterset.local`) | enrolled 72 s; Provisioned 11 min |
+| 5 | `bash bootstrap/50-grid-hub-info.sh`, then commit the printed `siteDigests.<site>` | the site's provider gateway pins its own certificate (until then it pins zeros and refuses every caller) | – |
+| 6 | `CONFIRM=local-cluster bash bootstrap/98-uninstall-spoke.sh local-cluster`, then `SPOKES=site-a bash bootstrap/36-portal-clients.sh` | the hub leaves the grid and drops OpenShift AI; its Submariner, `maas-db` and `grid` stay | 159 s |
+| 7 | `SPOKES=site-a SPOKE_ROLES=site-a=combined SPOKE_LOCATIONS=site-a=us-east make verify` | 177 checks (221 with both spokes) | about 3 min |
+
+What a remote spoke needed that `local-cluster` never did, each now in git with a check:
+Lighthouse imports a Service only into a namespace that exists on the importing cluster (Policy
+`clusterset-namespaces`); maas-api's own egress policy admits 5432 only to in-cluster postgres
+(Policy `maas-db` adds the hub database's Globalnet address); the Cluster Observability Operator
+(the platform app installs it on every spoke but `local-cluster`); Argo CD must know a cluster
+before an ApplicationSet can target it (GitOpsCluster follows `ai-grid-network`); the grid chart's
+invite Policy deadlocks Argo CD's PostSync hooks (a Policy health check); odh-model-controller's
+stale `<gateway>-authn-ssl` EnvoyFilters (Policy `authorino-service-ca` removes them); and Argo CD's
+controller needs 8Gi once it caches a second cluster.
+
 **Teardown** (`make teardown`) stops delivery and leaves what it installed: it unlabels the spokes,
 deletes the root ApplicationSet, then everything the delivery apps `ai-grid-spokes` and
 `ai-grid-policies` created (found by Argo CD's tracking annotation), then those apps. No Application
