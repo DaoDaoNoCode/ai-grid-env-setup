@@ -10,9 +10,14 @@ uat "maas-db exported"        "ServiceExport maas-db-rw not Valid: Submariner's 
 uat "maas-db read endpoint"   "Service maas-read-ro missing (apps/maas-db)" \
   bash -c "kc $h get svc maas-read-ro -n maas-db -o jsonpath='{.spec.externalName}' | grep -qx maas-db-ro.maas-db.svc.cluster.local"
 # Exported clusterset-wide, so the namespace admits 5432 only from maas-api, CloudNativePG itself,
-# and other clusters' Globalnet addresses. Probe from a namespace with no business there.
-uat "maas-db refuses other namespaces" "NetworkPolicy maas-db-ingress missing or too wide (apps/maas-db)" \
-  bash -c "! kc $h exec -n openshift-gitops deploy/openshift-gitops-repo-server -- timeout 4 bash -c '</dev/tcp/maas-db-rw.maas-db.svc/5432' 2>/dev/null"
+# and other clusters' Globalnet addresses. First prove the probe reaches the port from an allowed pod
+# (the database's own), then require that a namespace with no business there times out: a dropped
+# connection (124), not a probe that couldn't run (a wrong name or a missing pod exits 1).
+probe='timeout 4 bash -c "</dev/tcp/maas-db-rw.maas-db.svc/5432"'
+uat "maas-db probe reaches 5432 from an allowed pod" "the probe itself is broken (Service maas-db-rw, or exec into the database pod)" \
+  bash -c "kc $h exec -n maas-db \$(kc $h get pod -n maas-db -l cnpg.io/cluster=maas-db -o name | head -1) -c postgres -- bash -c '$probe'"
+uat "maas-db refuses other namespaces" "NetworkPolicy maas-db-ingress missing or too wide (apps/maas-db), or the probe pod is missing (exit not 124)" \
+  bash -c "kc $h exec -n openshift-gitops deploy/openshift-gitops-repo-server -- bash -c '$probe' >/dev/null 2>&1; [[ \$? == 124 ]]"
 uat "replica placement skips the hub" "Placement ai-grid-ingress-remote picked local-cluster" \
   bash -c "! kc $h get placementdecisions -n maas-db -l cluster.open-cluster-management.io/placement=ai-grid-ingress-remote -o json | jq -e '[.items[].status.decisions[]?.clusterName] | index(\"local-cluster\")'"
 for s in $SPOKES; do

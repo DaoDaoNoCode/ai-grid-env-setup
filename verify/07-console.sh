@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# The provider console on the hub (Task 9): built on the hub, signed in with the cluster's OpenShift
-# login, and its BFF reaching the backend. Until the console and backend agree on gRPC names, the
-# backend answers Clusters and Organizations with Unimplemented (HTTP 501); that's expected for now.
+# The provider console on the hub (Task 9): signed in with the cluster's OpenShift login, its BFF
+# reaching the backend, and the clusters API answering a provider admin.
 source "$(dirname "$0")/lib.sh"
 ns=ai-grid name=ai-grid-provider-console
 host=$(kc $HOST get route $name -n $ns -o jsonpath='{.spec.host}' 2>/dev/null)
@@ -33,9 +32,8 @@ uat "BFF reaches backend" "/readyz pings the backend over loopback; the backend 
   bash -c "curl -s -o /dev/null -w '%{http_code}' https://$host/readyz | grep -qx 200"
 # A signed-in provider admin's call: the token reaches curl through a file descriptor, never argv.
 code=$(curl -s -o /dev/null -w '%{http_code}' -H @<(printf 'Authorization: Bearer %s\n' "$(kc $HOST whoami -t)") "https://$host/api/v1/clusters")
-uat "clusters API answers" "got $code: 401/403 = token not accepted by kube-auth-proxy; 501 is expected until the console and backend gRPC names match" \
-  bash -c "[[ $code == 200 || $code == 501 ]]"
-[[ $code == 501 ]] && echo "     note: clusters API is 501 (Unimplemented): the known console/backend gRPC mismatch"
+uat "clusters API answers" "got $code: 401/403 = token not accepted by kube-auth-proxy or not a provider admin; 501 = console and backend images don't match" \
+  bash -c "[[ $code == 200 ]]"
 # The backend's own rights: label clusters, read the one root Policy, nothing more.
 sa=system:serviceaccount:$ns:$name
 can() { [[ $(kc $HOST auth can-i "$@" --as=$sa 2>/dev/null) == "$want" ]]; }

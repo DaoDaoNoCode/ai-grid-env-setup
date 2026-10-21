@@ -10,8 +10,15 @@
 source "$(dirname "$0")/lib.sh"
 s=${1:?usage: CONFIRM=<spoke> bash bootstrap/98-uninstall-spoke.sh <spoke>}
 [[ ${CONFIRM:-} == "$s" ]] || die "this deletes OpenShift AI and MaaS from $s; rerun with CONFIRM=$s"
-gone() { # <timeout s> <kc args...>: wait until the object is gone
-  local t=$1; shift; for _ in $(seq 1 $((t / 5))); do kc $s get "$@" >/dev/null 2>&1 || return 0; sleep 5; done
+gone() { # <timeout s> <kc args...>: wait until the object is gone; any error but NotFound stops
+  local t=$1 err; shift
+  for _ in $(seq 1 $((t / 5))); do
+    if ! err=$(kc $s get "$@" -o name 2>&1 >/dev/null); then
+      [[ $err == *NotFound* || $err == *"doesn't have a resource type"* ]] && return 0
+      die "can't check $*: $err"
+    fi
+    sleep 5
+  done
   kc $s get "$@" -o jsonpath='{.metadata.finalizers}{" "}{.status.conditions[-1:].message}' 2>/dev/null; echo
   die "still present after ${t}s: $* (finalizers and last condition above)"
 }
@@ -20,8 +27,9 @@ gone() { # <timeout s> <kc args...>: wait until the object is gone
 out="$(cd "$(dirname "$0")/.." && pwd)/out"; mkdir -p "$out"; inv=$out/uninstall-$s.txt
 if kc $HOST get applications.argoproj.io platform-$s -n openshift-gitops >/dev/null 2>&1; then
   : > "$inv"
-  for a in tenant models grid-consumer grid-provider grid-operator platform limitador-redis maas-db-replica; do
-    kc $HOST get applications.argoproj.io $a-$s -n openshift-gitops -o json 2>/dev/null \
+  # Only the Applications this spoke has: which ones exist depends on its role and on whether it's the hub.
+  for a in $(kc $HOST get applications.argoproj.io -n openshift-gitops -o name | sed -n "s|^application.argoproj.io/\(.*\)-$s\$|\1|p"); do
+    kc $HOST get applications.argoproj.io $a-$s -n openshift-gitops -o json \
       | jq -r --arg a $a '.status.resources[]? | [$a, .group // "", .kind, .namespace // "", .name] | join("|")' >> "$inv"
   done
 fi
@@ -78,9 +86,11 @@ log "OpenShift AI and MaaS"
 # Objects with cleanup finalizers go first, while the controllers that clear them still run; deleting
 # the DSC removes those controllers and leaves the objects (and their namespaces) stuck.
 del_app tenant
-for o in $(kc $s get externalmodels.maas.opendatahub.io,externalproviders.maas.opendatahub.io,maassubscriptions.maas.opendatahub.io,maasauthpolicies.maas.opendatahub.io,maasmodelrefs.maas.opendatahub.io -n models-as-a-service -o name 2>/dev/null); do
-  gone 300 "$o" -n models-as-a-service
-done
+# ExternalModel and ExternalProvider are inference.opendatahub.io; the rest are maas.opendatahub.io.
+# A failed lookup stops here rather than skip these and strand them on their finalizers.
+objs=$(kc $s get externalmodels.inference.opendatahub.io,externalproviders.inference.opendatahub.io,maassubscriptions.maas.opendatahub.io,maasauthpolicies.maas.opendatahub.io,maasmodelrefs.maas.opendatahub.io -n models-as-a-service -o name) \
+  || die "can't list the MaaS objects in models-as-a-service on $s"
+for o in $objs; do gone 300 "$o" -n models-as-a-service; done
 kc $s delete aitenants.maas.opendatahub.io --all -n ai-tenants --ignore-not-found --wait=false 2>/dev/null || true
 for o in $(kc $s get aitenants.maas.opendatahub.io -n ai-tenants -o name 2>/dev/null); do gone 300 "$o" -n ai-tenants; done
 kc $s delete maastenantconfigs.maas.opendatahub.io --all -n models-as-a-service --ignore-not-found --wait=false 2>/dev/null || true

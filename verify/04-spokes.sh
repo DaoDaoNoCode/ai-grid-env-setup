@@ -13,7 +13,7 @@ for a in ai-grid-spokes ai-grid-policies; do
 
 done
 # Secrets never ride on argv, where ps shows them: no curl argument built from a token or password.
-no_argv_secrets() { ! grep -n -E -- "-H \"Authorization: Bearer \\\$|-H 'Authorization: Bearer \\\$|password=\"\\\$" "$@"; }
+no_argv_secrets() { ! grep -n -E -- "-H \"Authorization: Bearer \\\$|-H 'Authorization: Bearer \\\$|password=\"\\\$| -d \"\\\$| --data[a-z-]* \"\\\$" "$@"; }
 export -f no_argv_secrets
 uat "no secrets on argv" "a script passes a token or password as a curl argument: pipe it (--data-urlencode password@-) or use -H @<(printf ...)" \
   no_argv_secrets bootstrap/*.sh verify/*.sh hack/*.sh

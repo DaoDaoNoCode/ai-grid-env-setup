@@ -47,8 +47,9 @@ while read -r u org grp; do
     email: ($u + "@" + $org + ".example.com"), firstName: $u, lastName: $org,
     attributes: { maas_orgs: [([{organization_id: $oid, organization_name: $org, roles: ["member"]}] | tojson)] },
     credentials: [{ type: "password", value: env.PW, temporary: false }] }')
-  if [[ -z $id ]]; then api -X POST "$base/users" -d "$body" >/dev/null; id=$(api "$base/users?username=$u&exact=true" | jq -r '.[0].id')
-  else api -X PUT "$base/users/$id" -d "$body" >/dev/null; fi
+  # The body holds the password: it goes on stdin, not argv.
+  if [[ -z $id ]]; then printf %s "$body" | api -X POST "$base/users" --data-binary @- >/dev/null; id=$(api "$base/users?username=$u&exact=true" | jq -r '.[0].id')
+  else printf %s "$body" | api -X PUT "$base/users/$id" --data-binary @- >/dev/null; fi
   api -X POST "$base/organizations/$oid/members" -d "\"$id\"" >/dev/null 2>&1 || true   # 409 when already a member
   if [[ -n $grp && $grp != - ]]; then
     gid=$(api "$base/groups?search=$grp&exact=true" | jq -r --arg g "$grp" '.[] | select(.name==$g) | .id')
