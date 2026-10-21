@@ -17,7 +17,9 @@ spec:
     # ACM Policies, as Argo CD's built-in check reads them, except the grid's invite Policies
     # (namespace grid-enrollment): each stays NonCompliant until the chart's PostSync Job mints its
     # token, and Argo CD runs PostSync hooks only once every resource is healthy, so the built-in
-    # check deadlocks every new invite. Their compliance is ACM's to show (verify/05).
+    # check deadlocks every new invite. Their compliance is ACM's to show (verify/05). Matched by the
+    # grid chart's standards annotation, not a grid-invite- name prefix: Argo CD's Lua has no string
+    # library, and the chart (v0.2.0) sets no label. Any other Policy there reads Degraded as usual.
     - group: policy.open-cluster-management.io
       kind: Policy
       check: |
@@ -26,7 +28,8 @@ spec:
         local c = obj.status ~= nil and obj.status.compliant or nil
         if c == "Compliant" then hs.status = "Healthy"; hs.message = "Compliant"
         elseif c == "NonCompliant" then
-          if obj.metadata.namespace == "grid-enrollment" then
+          local a = obj.metadata.annotations or {}
+          if obj.metadata.namespace == "grid-enrollment" and a["policy.open-cluster-management.io/standards"] == "AI Grid" then
             hs.status = "Healthy"; hs.message = "Invite NonCompliant until its token is minted; see ACM"
           else hs.status = "Degraded"; hs.message = "NonCompliant" end
         elseif c == "Pending" then hs.status = "Progressing"; hs.message = "Pending: waiting on a Policy it depends on"
