@@ -40,12 +40,20 @@ uat "one keycloak operator"  "a second Keycloak operator was installed (MaaS's s
   bash -c "[ \$(kc $h get csv -A --no-headers | awk '\$2 ~ /^(rhbk-operator|keycloak-operator)\./' | wc -l) -eq 1 ]"
 uat "realm ai-grid discovery" "Route keycloak missing, or KeycloakRealmImport ai-grid failed: kc host get keycloakrealmimport ai-grid -n $KEYCLOAK_NS -o yaml" \
   bash -c "curl -fsS https://$kchost/realms/ai-grid/.well-known/openid-configuration | jq -e '.issuer == \"https://$kchost/realms/ai-grid\"'"
-# Our Keycloak answers HTTP only through its Route, and its database only to it. Probe from a namespace
-# with no business there (the repo server has bash and /dev/tcp).
-uat "hub Keycloak refuses other namespaces" "Keycloak maas-keycloak spec.networkPolicy.http missing or too wide (apps/keycloak)" \
-  bash -c "! kc $HOST exec -n openshift-gitops deploy/openshift-gitops-repo-server -- timeout 4 bash -c '</dev/tcp/maas-keycloak-service.$KEYCLOAK_NS.svc/8080' 2>/dev/null"
-uat "hub Keycloak database refuses other namespaces" "NetworkPolicy keycloak-db-ingress missing or too wide (apps/keycloak)" \
-  bash -c "! kc $HOST exec -n openshift-gitops deploy/openshift-gitops-repo-server -- timeout 4 bash -c '</dev/tcp/keycloak-db-rw.$KEYCLOAK_NS.svc/5432' 2>/dev/null"
+# Our Keycloak answers HTTP only through its Route, and its database only to it. Each probe first
+# reaches the port from a pod the policy allows (the router; a database pod), then must time out (124)
+# from a namespace with no business there, not fail to run (a wrong name or a missing pod exits 1).
+# The repo server and the router have bash and /dev/tcp.
+kcprobe='timeout 4 bash -c "</dev/tcp/maas-keycloak-service.'$KEYCLOAK_NS'.svc/8080"'
+dbprobe='timeout 4 bash -c "</dev/tcp/keycloak-db-rw.'$KEYCLOAK_NS'.svc/5432"'
+uat "hub Keycloak probe reaches 8080 from the router" "the probe itself is broken (Service maas-keycloak-service, or exec into router-default)" \
+  bash -c "kc $HOST exec -n openshift-ingress deploy/router-default -- bash -c '$kcprobe'"
+uat "hub Keycloak refuses other namespaces" "Keycloak maas-keycloak spec.networkPolicy.http missing or too wide (apps/keycloak), or the probe pod is missing (exit not 124)" \
+  bash -c "kc $HOST exec -n openshift-gitops deploy/openshift-gitops-repo-server -- bash -c '$kcprobe' >/dev/null 2>&1; [[ \$? == 124 ]]"
+uat "hub Keycloak database probe reaches 5432 from an allowed pod" "the probe itself is broken (Service keycloak-db-rw, or exec into the database pod)" \
+  bash -c "kc $HOST exec -n $KEYCLOAK_NS \$(kc $HOST get pod -n $KEYCLOAK_NS -l cnpg.io/cluster=keycloak-db -o name | head -1) -c postgres -- bash -c '$dbprobe'"
+uat "hub Keycloak database refuses other namespaces" "NetworkPolicy keycloak-db-ingress missing or too wide (apps/keycloak), or the probe pod is missing (exit not 124)" \
+  bash -c "kc $HOST exec -n openshift-gitops deploy/openshift-gitops-repo-server -- bash -c '$dbprobe' >/dev/null 2>&1; [[ \$? == 124 ]]"
 uat "hub issuer ignores forged X-Forwarded-Host" "Route maas-keycloak lacks haproxy.router.openshift.io/set-forwarded-headers: replace, and the hostname isn't pinned" \
   bash -c "kc $HOST get route maas-keycloak -n $KEYCLOAK_NS -o jsonpath='{.metadata.annotations.haproxy\\.router\\.openshift\\.io/set-forwarded-headers}' | grep -qx replace \
     && curl -fsS -H 'X-Forwarded-Host: forged.invalid' https://$kchost/realms/ai-grid/.well-known/openid-configuration | jq -e '.issuer == \"https://$kchost/realms/ai-grid\"'"
