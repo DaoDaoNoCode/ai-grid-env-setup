@@ -41,7 +41,7 @@ spec:
             swim: { siteName: local-cluster, service: { type: ClusterIP } }
             enrollment: { enabled: false }
             {{`{{- else }}`}}
-            swim: { siteName: {{`{{.name}}`}} }
+            swim: { siteName: {{`{{.name}}`}}, service: { type: {{ .Values.remoteSwimServiceType }} } }
             platform: aws
             enrollment: { enabled: true, url: "https://{{ .Values.enrollHost }}" }
             {{`{{- end }}`}}

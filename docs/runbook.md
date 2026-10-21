@@ -43,11 +43,52 @@ backend addresses (`modelBackendIP`, `providerIP`) assume the default `172.30.0.
 `make all` is `hub` then `spokes`; it doesn't add any cluster to the grid. Every script is safe to rerun (`make all` on the built hub,
 2026-10-19: no changes, `make verify` ALL PASS).
 
+### A remote spoke, and a hub without OpenShift AI
+
+Built 2026-10-21 on two demo.redhat.com clusters (OpenShift 4.21, AWS, same region, same pod and
+Service CIDRs): the hub, and a second cluster imported as `site-a` (role `combined`). Afterwards the
+hub's `local-cluster` left the grid, so the hub runs ACM, Argo CD, Keycloak, grid enrollment, the
+console and the databases, and no OpenShift AI.
+
+| Step | Command | What happens | Time |
+|---|---|---|---|
+| 1 | `SPOKES="local-cluster site-a" bash bootstrap/45-import.sh` (kubeconfig at `$KUBEDIR/site-a`) | ManagedCluster `site-a`, no `ai-grid/*` labels: importing gives no grid membership and no network yet | joined 13 s |
+| 2 | add `invites.<site>` to `apps/grid-enrollment/manifests/values.yaml` and `spokes/clusters/<site>/models`, commit | the invite Job mints a 24 h token; ACM delivers it to the site | about 1 min |
+| 3 | `SPOKES="… site-a" bash bootstrap/36-portal-clients.sh` | `maas-cli` takes the site's portal callback | seconds |
+| 4 | **Add to AI Grid** in the console (`combined`, a location) | as for `local-cluster`; membership also puts the site on Submariner with the hub (Placement `ai-grid-network` selects `ai-grid/enabled`; load-balancer mode, no AWS credentials), and the site enrolls with enrollment over it (`local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local:8443`) | tunnel up about 4 min; enrolled 72 s; Provisioned 11 min |
+| 5 | `bash bootstrap/50-grid-hub-info.sh`, then commit the printed `siteDigests.<site>` | the site's provider gateway pins its own certificate (until then it pins zeros and refuses every caller) | – |
+| 6 | `CONFIRM=local-cluster bash bootstrap/98-uninstall-spoke.sh local-cluster`, then `SPOKES=site-a bash bootstrap/36-portal-clients.sh` | the hub leaves the grid and drops OpenShift AI; its Submariner, `maas-db` and `grid` stay | 159 s |
+| 7 | `SPOKES=site-a SPOKE_ROLES=site-a=combined SPOKE_LOCATIONS=site-a=us-east make verify` | 177 checks (221 with both spokes) | about 3 min |
+
+`invites.site-a` (`apps/grid-enrollment/manifests/values.yaml`) and `siteDigests.site-a`
+(`apps/ai-grid-spokes/manifests/values.yaml`) are values from this build, like `hubSiteDigest`. On a
+rebuild, replace them as steps 2 and 5 say: until then the invite names a cluster that may not exist,
+and the provider gateway pins a stale digest and refuses every caller.
+
+Spokes reach the hub's exports at `local-cluster.<svc>.<ns>.svc.clusterset.local`, Lighthouse's
+name for the hub's own export, so another member exporting a Service of the same name can't answer
+for it. Enrollment's serving certificate names it through `serving.extraDnsNames`; the bootstrap Job
+that issues the certificate is a hook, and Argo CD runs hooks only when something else changed, so
+after changing that value sync `grid-enrollment` by hand and restart `deploy/grid-enrollment`
+(`verify/05` checks the name).
+
+What a remote spoke needed that `local-cluster` never did, each now in git with a check:
+Lighthouse imports a Service only into a namespace that exists on the importing cluster (Policy
+`clusterset-namespaces`); maas-api's own egress policy admits 5432 only to in-cluster postgres
+(Policy `maas-db` adds the hub database's Globalnet address); the Cluster Observability Operator
+(the platform app installs it on every spoke but `local-cluster`); Argo CD must know a cluster
+before an ApplicationSet can target it (GitOpsCluster follows `ai-grid-network`); the grid chart's
+invite Policy deadlocks Argo CD's PostSync hooks (a Policy health check); odh-model-controller's
+stale `<gateway>-authn-ssl` EnvoyFilters (Policy `authorino-service-ca` removes them); and Argo CD's
+controller needs 8Gi once it caches a second cluster.
+
 **Teardown** (`make teardown`) stops delivery and leaves what it installed: it unlabels the spokes,
 deletes the root ApplicationSet, then everything the delivery apps `ai-grid-spokes` and
 `ai-grid-policies` created (found by Argo CD's tracking annotation), then those apps. No Application
-has a resources finalizer, every ApplicationSet preserves resources on deletion, and ACM Policies
-don't prune, so OpenShift AI, the grid and the hub services keep running. Not yet run on `aio`.
+has a resources finalizer except a remote spoke's `submariner-<site>` (leaving the network removes
+Submariner from that spoke, as Remove in the console does), every ApplicationSet preserves resources
+on deletion, and ACM Policies don't prune, so OpenShift AI, the grid and the hub services keep
+running. Not yet run on `aio`.
 
 **Unlabel drill** (Task 8 Step 4, 2026-10-19): removing `ai-grid/enabled` from `local-cluster`
 removed its six delivery Applications within 21 s and its Policies; the DSC stayed Ready and the grid
@@ -98,7 +139,7 @@ before then (how long an extension lasts is set there; unverified).
 | 2026-10-19 | 6. Tenant end to end (Task 7, Steps 1-3) | ALL PASS (06-tenant-e2e) | **Pending** (Chris away) | alice: Keycloak (hub) → MaaS on local-cluster (key minted) → MaaS gateway → grid consumer (TLS) → mTLS → provider → vLLM: 200 with text. dave (org1, no group) refused, but MaaS answers 500 AUTH_FAILURE rather than 403 (upstream bug to report). Portal sign-in followed in Steps 5-6 (row 7). |
 | 2026-10-19 | 7. Tenant portal sign-in (Task 7, Steps 5-6) | ALL PASS (06-tenant-portal) | **Pending** (Chris away) | D6 as re-decided: alice opens `https://maas.<apps domain>/maas-consumer-portal/`, is sent to hub Keycloak realm ai-grid, signs in (user name, then password), and the portal opens; the cluster's OpenShift login lists only `rhbk`. Policy `tenant-portal` delivers an oauth2-proxy (namespace `aigrid-portal-auth`), two HTTPRoutes on the MaaS gateway, and Authorino policies. The proxy uses the public tenant client `maas-cli` with PKCE, because MaaS accepts one client per tenant. Cross-origin cookie writes are refused (CSRF fix, RED→GREEN). The portal lists alice's models once Policy `maas-route` gives the MaaS gateway its host name (fixed the same night). Open gap: the portal's Kubernetes-backed calls (user, namespaces) are Unauthorized for Keycloak tokens. |
 | 2026-10-19 | 8. Rebuild and teardown (Task 8) | ALL PASS | **Pending** (one sitting at the end) | Unlabel drill passed (apps removed in 21 s, workloads kept, relabel restored in 31 s) after the placement-gated ApplicationSets fix. `make teardown` not run. Rebuild drill needs a fresh order. |
-| 2026-10-19 | 9. Provider console, as is (Task 9) | ALL PASS (07-console) | **Pending** | Built on the hub from pinned commits (console `ac80c25`, backend `dd513f9`, linux/amd64) into the internal registry; provider admins sign in with the cluster login (OAuthClient from `bootstrap/60-console.sh`); the backend uses its own Keycloak user in realm `ai-grid`. Clusters and Organizations answered 501 until the console and backend gRPC names matched (console PR 34, backend PR 12); `verify/07` now requires 200. Rebuild: bump the refs in `apps/console/manifests`, then `oc start-build` and `oc rollout restart`. Images (2026-10-20): by default `ghcr.io/ai-grid-cloud/ai-grid-provider-console` and `ghcr.io/ai-grid-cloud/ai-grid-provider-backend`, pinned by `sha-<full commit>@<digest>` in `apps/console/manifests/images/ghcr/` (tags can be overwritten; the digest is what runs) (the packages the repositories' GitHub Actions publish to, console PR 32 and backend PR 8; until those merge, images for PR heads are pushed there by hand). **Bump:** take the `sha-<commit>` tag CI published for the merge commit and its digest (`skopeo inspect docker://<image>:<tag> | jq -r .Digest`), change both in `images/ghcr/kustomization.yaml`, move the base ref in `apps/console/manifests/kustomization.yaml` if the console's `manifests/` changed, commit; Argo CD rolls the pod. Never pin `latest` or `pr-<N>`. **Fallback** for unpublished work: set the `components:` line to `./images/in-cluster` and build with the BuildConfigs in `builds.yaml` (`*-local` take a local checkout). The backend may patch ManagedCluster labels (Add to AI Grid, Remove) and get only the root Policy `ai-grid-ready` (Role in `apps/ai-grid-policies`): the per-cluster Policy copies hold rendered hub-template secrets. |
+| 2026-10-19 | 9. Provider console, as is (Task 9) | ALL PASS (07-console) | **Pending** | Built on the hub from pinned commits (console `ac80c25`, backend `dd513f9`, linux/amd64) into the internal registry; provider admins sign in with the cluster login (OAuthClient from `bootstrap/60-console.sh`); the backend uses its own Keycloak user in realm `ai-grid`. Clusters and Organizations answered 501 until the console and backend gRPC names matched (console PR 34, backend PR 12); `verify/07` now requires 200. Rebuild: bump the refs in `apps/console/manifests`, then `oc start-build` and `oc rollout restart`. Images (2026-10-20): by default `ghcr.io/ai-grid-cloud/ai-grid-provider-console` and `ghcr.io/ai-grid-cloud/ai-grid-provider-backend`, pinned by `sha-<full commit>@<digest>` in `apps/console/manifests/images/ghcr/` (tags can be overwritten; the digest is what runs) (the packages the repositories' GitHub Actions publish from `main`, console PR 32 and backend PR 8). **Bump:** take the `sha-<commit>` tag CI published for the merge commit and its digest (`skopeo inspect docker://<image>:<tag> | jq -r .Digest`), change both in `images/ghcr/kustomization.yaml`, move the base ref in `apps/console/manifests/kustomization.yaml` and the refs in `builds.yaml` to the same commits, commit; Argo CD rolls the pod. Never pin `latest` or `pr-<N>`. **Fallback** for unpublished work: set the `components:` line to `./images/in-cluster` and build with the BuildConfigs in `builds.yaml` (`*-local` take a local checkout). The backend may patch ManagedCluster labels (Add to AI Grid, Remove) and get only the root Policy `ai-grid-ready` (Role in `apps/ai-grid-policies`): the per-cluster Policy copies hold rendered hub-template secrets. |
 | 2026-10-20 | 10. Features from `ai-grid-tenant` (parity plan) | ALL PASS (145) | **Pending** | Renovate (PRs only, for the nightly catalog digest; needs repository secrets `QUAY_USERNAME` and `QUAY_PASSWORD`). ACM observability on the hub with Thanos in S4, and OpenShift AI metrics from spokes (`verify/08`). Submariner add-on with Globalnet on every spoke (`verify/09`; Degraded on one cluster, which has no peer). Limitador counters in password-protected Redis on ingress spokes (`verify/10`). maas-db with 3 instances, exported through Submariner, SCRAM-only logins, and a NetworkPolicy; read replicas for remote ingress spokes as groundwork (`verify/11`). `98-uninstall-spoke.sh` covers the new pieces but hasn't been rerun. |
 
 
@@ -144,6 +185,13 @@ model plumbing (the grid-backend Service, NetworkPolicy allow-grid-provider) sta
   replica in `spokes/maas-db-replica` has no NetworkPolicy; and the hub's `maas-db-ingress` admits
   all of Globalnet `242.0.0.0/8`, so any cluster in the set can reach port 5432 (narrow it to the
   ingress spokes' Globalnet CIDRs).
+- **Removing an unreachable spoke can leave its Submariner app stuck deleting.** Remove makes Argo CD
+  delete `submariner-<spoke>`, whose resources finalizer waits for the add-on and SubmarinerConfig to
+  go; ACM's cleanup of them may never finish while the spoke can't be reached. Unstick it on the hub:
+  `kc host delete managedclusteraddon submariner -n <spoke> --wait=false`, then, if the app still
+  hangs, `kc host patch applications.argoproj.io submariner-<spoke> -n openshift-gitops --type json
+  -p '[{"op":"remove","path":"/metadata/finalizers"}]'`. Remove taking a spoke off the network is
+  designed but not yet verified on a cluster.
 - **Metrics have one copy.** S4 runs one replica on one volume; losing the volume loses stored metrics.
 
 ## Fixes found along the way

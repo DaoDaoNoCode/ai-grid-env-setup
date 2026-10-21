@@ -21,7 +21,9 @@ spec:
   externalClusters:
     - name: maas-db
       connectionParameters:
-        host: maas-db-rw.maas-db.svc.clusterset.local
+        # The hub's own export (cluster ID local-cluster): another cluster exporting maas-db-rw
+        # can't answer this name.
+        host: local-cluster.maas-db-rw.maas-db.svc.clusterset.local
         user: streaming_replica
         sslmode: verify-full
         dbname: postgres

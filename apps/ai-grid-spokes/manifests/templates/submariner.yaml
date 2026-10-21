@@ -20,15 +20,28 @@ spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   syncPolicy: { preserveResourcesOnDeletion: true }
+  # Placement ai-grid-network, not ai-grid-spokes: the hub stays on the network when it leaves the
+  # grid. These apps write only to the hub, so the spoke needs no Argo CD cluster Secret.
+  # Designed so leaving the network removes it (not yet verified on a cluster): a remote spoke's app
+  # carries the resources finalizer, so when the Placement drops the spoke (Remove in the console),
+  # deleting the app should delete its add-on and SubmarinerConfig, and ACM then removes Submariner
+  # from the spoke. If the spoke is unreachable, that cleanup can hang: runbook, Known gaps. The
+  # hub's app has none, so nothing, not even deleting this ApplicationSet, takes the hub off it.
+  templatePatch: |
+    metadata:
+      finalizers: {{`{{ if eq .clusterName "local-cluster" }}[]{{ else }}[resources-finalizer.argocd.argoproj.io]{{ end }}`}}
   generators:
-    {{- include "ai-grid-spokes.generators" (list) | nindent 4 }}
+    - clusterDecisionResource:
+        configMapRef: acm-placement
+        labelSelector: { matchLabels: { cluster.open-cluster-management.io/placement: ai-grid-network } }
+        requeueAfterSeconds: 60
   template:
-    metadata: { name: 'submariner-{{`{{.name}}`}}' }
+    metadata: { name: 'submariner-{{`{{.clusterName}}`}}' }
     spec:
       project: default
       source: { repoURL: {{ required "gitRepo" .Values.gitRepo | quote }}, targetRevision: {{ required "gitRef" .Values.gitRef | quote }}, path: hub/submariner }
       # The hub, into the spoke's cluster namespace.
-      destination: { server: https://kubernetes.default.svc, namespace: '{{`{{.name}}`}}' }
+      destination: { server: https://kubernetes.default.svc, namespace: '{{`{{.clusterName}}`}}' }
       syncPolicy:
         automated: { selfHeal: true, prune: true }
         retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }

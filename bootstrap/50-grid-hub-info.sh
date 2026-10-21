@@ -10,3 +10,16 @@ kc $HOST patch configmap ai-grid-hub-info -n ai-grid-policies --type merge \
   -p "{\"data\":{\"hubSiteDigest\":\"$digest\"}}"
 pinned=$(yq '.hubSiteDigest' "$(dirname "$0")/../apps/ai-grid-spokes/manifests/values.yaml")
 [[ $pinned == "$digest" ]] || log "commit this digest: set hubSiteDigest: \"$digest\" in apps/ai-grid-spokes/manifests/values.yaml (D8)"
+# Each remote site's own digest, once it has enrolled: its provider gateway pins it (siteDigests).
+# stderr apart from the digest, so a kubectl warning can't end up in the printed pin.
+err=$(mktemp); trap 'rm -f "$err"' EXIT
+for s in $SITES; do
+  # No GridNetwork kind, object or fingerprint yet means not enrolled; any other error stops.
+  if ! fp=$(kc $s get gridnetworks -n "$GRID_NS" -o jsonpath='{.items[*].status.identity.fingerprint}' 2>"$err"); then
+    grep -q "doesn't have a resource type" "$err" || die "can't read $s's GridNetwork: $(cat "$err")"
+    fp=
+  fi
+  [[ -n $fp ]] || { log "$s hasn't enrolled yet: rerun after adding it to AI Grid"; continue; }
+  pinned=$(yq ".siteDigests[\"$s\"]" "$(dirname "$0")/../apps/ai-grid-spokes/manifests/values.yaml")
+  [[ $pinned == "$fp" ]] || log "commit this digest: set siteDigests.$s: \"$fp\" in apps/ai-grid-spokes/manifests/values.yaml"
+done

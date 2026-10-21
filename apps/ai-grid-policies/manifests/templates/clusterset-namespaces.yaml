@@ -1,0 +1,27 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata: { name: clusterset-namespaces, namespace: ai-grid-policies }
+spec:
+  remediationAction: {{ .Values.clustersetNamespacesRemediation }}
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata: { name: clusterset-namespaces }
+        spec:
+          severity: medium
+          # Submariner's Lighthouse imports an exported Service only into a namespace that exists on
+          # the importing cluster (namespace sameness). A remote spoke reaches the hub's maas-db and
+          # grid enrollment by their clusterset names, so it needs both namespaces, empty if need be.
+          object-templates:
+            - complianceType: musthave
+              objectDefinition: { apiVersion: v1, kind: Namespace, metadata: { name: maas-db } }
+            - complianceType: musthave
+              objectDefinition: { apiVersion: v1, kind: Namespace, metadata: { name: grid-enrollment } }
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata: { name: clusterset-namespaces, namespace: ai-grid-policies }
+placementRef: { apiGroup: cluster.open-cluster-management.io, kind: Placement, name: ai-grid-network }
+subjects: [{ apiGroup: policy.open-cluster-management.io, kind: Policy, name: clusterset-namespaces }]

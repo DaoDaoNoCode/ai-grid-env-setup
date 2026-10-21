@@ -1,8 +1,17 @@
 grid-enrollment:
-  # No Route yet: the hub site joins through hubSite, and only a remote spoke (Task 11) needs one.
-  # The chart requires route.host for its serving certificate (D8 decides where that host lives).
+  # No Route: remote sites enroll over Submariner, at the hub's own export of the Service
+  # (local-cluster.<svc>.<ns>.svc.clusterset.local: another cluster exporting the same name can't
+  # answer it; ServiceExport
+  # in templates/), so enrollment isn't public and no host name goes in git. The bootstrap adds
+  # that name to the serving certificate, reissuing it when a name is missing.
   route: { enabled: false }
+  serving: { extraDnsNames: [local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local] }
   hubSite: { name: local-cluster, namespace: grid }
+  # Each remote site, by its ManagedCluster name. The invite Job mints a token once (it lasts 24 h:
+  # add the site to AI Grid the same day, or delete Secret grid-invite-<site> here and resync), and
+  # the invite Policy delivers it to the site with the CA bundle and gossip key.
+  invites:
+    site-a: { network: grid }
   invitePolicy: { enabled: true, namespace: grid, clusterSet: default }
   db:
     builtin:

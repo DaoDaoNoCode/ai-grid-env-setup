@@ -24,8 +24,11 @@ spec:
               gatewayConfig:
                 role: provider
                 localSite: {{`{{.name}}`}}
-                # The callers present this site's identity (the hub site's leaf certificate, D8).
-                peerTrust: { mode: pin, certDigests: ["{{ .Values.hubSiteDigest }}"] }
+                # The callers present this site's identity: the hub site's leaf certificate on
+                # local-cluster (D8), a remote site's own (siteDigests) elsewhere. A site with no
+                # digest yet pins 64 zeros, which no certificate matches: closed until committed,
+                # whatever the gateway would make of an empty pin.
+                peerTrust: { mode: pin, certDigests: ["{{`{{ if eq .name "local-cluster" }}`}}{{ required "hubSiteDigest" .Values.hubSiteDigest }}{{`{{ else }}{{ index (dict`}}{{ range $k, $v := .Values.siteDigests }} "{{ $k }}" "{{ $v }}"{{ end }}{{`) .name | default "`}}{{ repeat 64 "0" }}{{`" }}{{ end }}`}}"] }
                 backends:
                   local:
                     endpoint: "{{ .Values.modelBackendIP }}:8000"

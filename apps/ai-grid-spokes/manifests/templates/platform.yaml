@@ -20,6 +20,11 @@ spec:
             valueFiles:
               - $values/spokes/platform/values/common.yaml
               - '$values/spokes/platform/values/{{`{{ if eq (index .metadata.labels "ai-grid/role") "inference" }}`}}inference{{`{{ else }}`}}ingress{{`{{ end }}`}}.yaml'
+            # The Cluster Observability Operator, which OpenShift AI's metrics need: the hub already
+            # runs one (RHOAIENG-99507: two installers conflict there), so the chart installs it only
+            # on remote spokes. ACM's observability add-on doesn't install it on them.
+            parameters:
+              - { name: dependencies.clusterObservability.enabled, value: '{{`{{ if eq .name "local-cluster" }}false{{ else }}auto{{ end }}`}}' }
         - repoURL: {{ required "gitRepo" .Values.gitRepo }}
           targetRevision: {{ required "gitRef" .Values.gitRef }}
           ref: values

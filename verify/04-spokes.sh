@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"
 h=$HOST
+# A hub that isn't a grid member keeps no OpenShift AI (removed with bootstrap/98-uninstall-spoke.sh).
+if [[ " $SPOKES " != *" local-cluster "* ]]; then
+  uat "hub runs no OpenShift AI" "local-cluster left the grid but still has a DataScienceCluster or OpenShift AI's operator: CONFIRM=local-cluster bash bootstrap/98-uninstall-spoke.sh local-cluster" \
+    bash -c "[ -z \"\$(kc $h get datasciencecluster -o name 2>/dev/null)\" ] && ! kc $h get ns redhat-ods-operator >/dev/null 2>&1"
+  uat "hub keeps the network" "Submariner left local-cluster: the hub's maas-db and enrollment are reached through it (Placement ai-grid-network)" \
+    bash -c "kc $h get managedclusteraddon submariner -n local-cluster -o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}' | grep -qx True"
+fi
 uat "app ai-grid-spokes"     "Argo CD app not Synced/Healthy: a Helm render error (an unescaped {{ }}) or a sync retry" app ai-grid-spokes
 # Synced only: a Policy still in inform is NonCompliant by design, which Argo CD shows as Degraded.
 uat "app ai-grid-policies synced" "a Helm render error (an unescaped {{ }}) in apps/ai-grid-policies" \
@@ -19,6 +26,10 @@ uat "no secrets on argv" "a script passes a token or password as a curl argument
   no_argv_secrets bootstrap/*.sh verify/*.sh hack/*.sh
 for s in $SPOKES; do
   r=$(role_of $s)
+  if [[ $s != local-cluster ]]; then
+    uat "$s joined" "klusterlet can't reach the hub, or the import didn't run (bootstrap/45-import.sh): kc host get managedcluster $s -o yaml" \
+      bash -c "kc $h get managedcluster $s -o jsonpath='{.status.conditions[?(@.type==\"ManagedClusterConditionAvailable\")].status}' | grep -qx True"
+  fi
   uat "$s labelled $r"        "add it from the console (Clusters, Add to AI Grid), or the dev shortcut bootstrap/40-spoke.sh" \
     bash -c "kc $h get managedcluster $s -o json | jq -e '.metadata.labels[\"ai-grid/enabled\"]==\"true\" and .metadata.labels[\"ai-grid/role\"]==\"$r\"'"
   uat "$s placed"             "Placement ai-grid-spokes: no ManagedClusterSetBinding 'default' in openshift-gitops, or the cluster isn't in set default" \
@@ -44,6 +55,11 @@ for s in $SPOKES; do
     maas=$(maas_url $s)
     uat "$s MaaS health 200"  "maas-default-gateway not Programmed, or its listener hostname differs: kc $s get gateway -n openshift-ingress" \
       bash -c "curl -s -o /dev/null -w '%{http_code}' $maas/maas-api/health | grep -qx 200"
+    # Authorino listens without TLS (Policy authorino-service-ca). odh-model-controller adds a
+    # <gateway>-authn-ssl EnvoyFilter forcing TLS to it if a gateway reconciles before Authorino
+    # exists, and never removes it: every authenticated call then gets 500.
+    uat "$s gateway reaches Authorino in plaintext" "a stale <gateway>-authn-ssl EnvoyFilter in openshift-ingress (Policy authorino-service-ca removes it): kc $s get envoyfilter -n openshift-ingress" \
+      bash -c "out=\$(kc $s get envoyfilter -n openshift-ingress -o name) && ! grep -q -- '-authn-ssl\$' <<<\"\$out\""
   else
     uat "$s has no MaaS"      "inference values enabled aigateway" bash -c "! kc $s get deploy maas-api -n redhat-ai-gateway-infra"
   fi

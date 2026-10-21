@@ -26,4 +26,23 @@ for s in $SPOKES; do
     bash -c "l=\$(kc $s get gridsites -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{\"\\n\"}{end}') || exit 1; grep -q '^$s ' <<<\"\$l\" || exit 1; ! grep -v '^$s ' <<<\"\$l\" | grep -v ' Active\$' | grep -q ."
   uat "$s ai-grid-ready"     "DSC not Ready or the grid operator not running on $s (D3)" pol $s ai-grid-ready
 done
+# Remote sites enroll at enrollHost; its serving certificate must name it. The bootstrap that
+# issues it is a hook, and Argo CD skips hooks when nothing else changed: after changing
+# serving.extraDnsNames, sync grid-enrollment by hand (runbook).
+if [[ -n ${SITES// /} ]]; then
+  eh=$(yq '.enrollHost' apps/ai-grid-spokes/manifests/values.yaml); eh=${eh%%:*}
+  uat "enrollment certificate names $eh" "the serving certificate predates serving.extraDnsNames: sync Argo CD app grid-enrollment by hand, then restart deploy/grid-enrollment" \
+    bash -c "kc $h get secret enrollment-serving-tls -n grid-enrollment -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -ext subjectAltName | grep -q 'DNS:$eh\(,\|\$\)'"
+fi
+# Remote sites: an invite token, delivered with the CA bundle and gossip key by ACM Policy
+# grid-invite-<site> (Argo CD calls it Healthy while it waits; this is its real state).
+for s in $SITES; do
+  uat "$s invite minted" "the invite Job (PostSync) hasn't run: kc host get jobs -n grid-enrollment; or invites.$s is missing from apps/grid-enrollment" \
+    kc $h get secret grid-invite-$s -n grid-enrollment
+  uat "$s invite delivered" "Policy grid-invite-$s NonCompliant: kc host get policy grid-enrollment.grid-invite-$s -n $s -o yaml" \
+    bash -c "kc $h get policy grid-enrollment.grid-invite-$s -n $s -o jsonpath='{.status.compliant}' | grep -qx Compliant"
+  # A missing or mistyped siteDigests key falls back to the zeros pin: the provider refuses everyone.
+  uat "$s digest pinned" "siteDigests.$s in apps/ai-grid-spokes/manifests/values.yaml is missing, not 64 hex, or from another build: bash bootstrap/50-grid-hub-info.sh prints it" \
+    bash -c "p=\$(yq '.siteDigests[\"$s\"]' apps/ai-grid-spokes/manifests/values.yaml); grep -Eqx '[0-9a-f]{64}' <<<\"\$p\" && [ \"\$p\" = \"\$(kc $s get gridnetworks -n $GRID_NS -o jsonpath='{.items[*].status.identity.fingerprint}')\" ]"
+done
 summary

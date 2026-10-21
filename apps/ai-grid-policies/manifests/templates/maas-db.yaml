@@ -30,7 +30,7 @@ spec:
                 metadata: { name: maas-db-config, namespace: redhat-ods-applications }
                 type: Opaque
                 stringData:
-                  DB_CONNECTION_URL: {{`'{{ printf "postgresql://%s:%s@{{hub if eq .ManagedClusterName "local-cluster" hub}}maas-db-rw.maas-db.svc{{hub else hub}}maas-db-rw.maas-db.svc.clusterset.local{{hub end hub}}:5432/%s?sslmode=require&require_auth=scram-sha-256&channel_binding=require" ("{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "dbname" hub}}" | base64dec) }}'`}}
+                  DB_CONNECTION_URL: {{`'{{ printf "postgresql://%s:%s@{{hub if eq .ManagedClusterName "local-cluster" hub}}maas-db-rw.maas-db.svc{{hub else hub}}local-cluster.maas-db-rw.maas-db.svc.clusterset.local{{hub end hub}}:5432/%s?sslmode=require&require_auth=scram-sha-256&channel_binding=require" ("{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "dbname" hub}}" | base64dec) }}'`}}
             - complianceType: musthave
               objectDefinition:
                 apiVersion: v1
@@ -38,7 +38,25 @@ spec:
                 metadata: { name: maas-db-config, namespace: redhat-ai-gateway-infra }
                 type: Opaque
                 stringData:
-                  DB_CONNECTION_URL: {{`'{{ printf "postgresql://%s:%s@{{hub if eq .ManagedClusterName "local-cluster" hub}}maas-db-rw.maas-db.svc{{hub else hub}}maas-db-rw.maas-db.svc.clusterset.local{{hub end hub}}:5432/%s?sslmode=require&require_auth=scram-sha-256&channel_binding=require" ("{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "dbname" hub}}" | base64dec) }}'`}}
+                  DB_CONNECTION_URL: {{`'{{ printf "postgresql://%s:%s@{{hub if eq .ManagedClusterName "local-cluster" hub}}maas-db-rw.maas-db.svc{{hub else hub}}local-cluster.maas-db-rw.maas-db.svc.clusterset.local{{hub end hub}}:5432/%s?sslmode=require&require_auth=scram-sha-256&channel_binding=require" ("{{hub fromSecret "maas-db" "maas-db-app" "username" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "password" hub}}" | base64dec | urlquery) ("{{hub fromSecret "maas-db" "maas-db-app" "dbname" hub}}" | base64dec) }}'`}}
+            # A remote spoke's maas-api reaches the hub's maas-db through Submariner, at its Globalnet
+            # address. MaaS's own egress policy (maas-api-egress-restrict) admits 5432 only to
+            # postgres pods it can name in-cluster, so allow that one address, port 5432 only: the
+            # hub Service's GlobalIngressIP, read on the hub. Without one the CIDR is invalid and the
+            # Policy fails closed. Harmless on the hub's own spoke. mustonlyhave: musthave never
+            # removes list items, so a reallocated address would leave the old one allowed.
+            - complianceType: mustonlyhave
+              objectDefinition:
+                apiVersion: networking.k8s.io/v1
+                kind: NetworkPolicy
+                metadata: { name: maas-api-to-clusterset-db, namespace: redhat-ai-gateway-infra }
+                spec:
+                  podSelector:
+                    matchLabels: { app.kubernetes.io/component: api, app.kubernetes.io/name: maas-api, app.kubernetes.io/part-of: models-as-a-service }
+                  policyTypes: [Egress]
+                  egress:
+                    - to: [{ ipBlock: { cidr: '{{`{{hub (lookup "submariner.io/v1" "GlobalIngressIP" "maas-db" "maas-db-rw").status.allocatedIP hub}}`}}/32' } }]
+                      ports: [{ port: 5432, protocol: TCP }]
 ---
 apiVersion: policy.open-cluster-management.io/v1
 kind: PlacementBinding

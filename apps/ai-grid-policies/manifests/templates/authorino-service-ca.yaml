@@ -44,6 +44,18 @@ spec:
                         - name: authorino
                           env:
                             - { name: SSL_CERT_DIR, value: "/etc/ssl/certs/openshift-service-ca:/etc/pki/tls/certs:/etc/ssl/certs" }
+            # Authorino's listener has no TLS. odh-model-controller adds <gateway>-authn-ssl, which
+            # makes the gateway call Authorino over TLS, when a gateway reconciles before any
+            # Authorino exists (it then assumes TLS), and never removes it: every authenticated
+            # call gets 500. Seen on a remote spoke whose Kuadrant arrived late (odh-model-controller
+            # internal/controller/utils/kuadrant.go, IsAuthorinoTLSEnabled).
+{{- range list "maas-default-gateway" "openshift-ai-inference" }}
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: networking.istio.io/v1alpha3
+                kind: EnvoyFilter
+                metadata: { name: {{ . }}-authn-ssl, namespace: openshift-ingress }
+{{- end }}
 ---
 apiVersion: policy.open-cluster-management.io/v1
 kind: PlacementBinding

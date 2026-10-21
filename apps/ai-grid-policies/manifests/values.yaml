@@ -11,3 +11,4 @@ tenantPortalRemediation: enforce
 portalProxyImage: registry.redhat.io/rhoai/odh-kube-auth-proxy-rhel9@sha256:8792522102e03b3272af56d61c899c65ff3b3ef36647e5b24d51b3dc0547bf95
 gridNs: grid
 authorinoCARemediation: enforce
+clustersetNamespacesRemediation: enforce

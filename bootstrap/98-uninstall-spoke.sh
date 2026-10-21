@@ -49,10 +49,33 @@ del_app() { # <app> [kind...]: delete what that app deployed, optionally only th
   done
 }
 
-# 2. Stop delivery and Policies for this spoke.
+# 2. Stop delivery and Policies for this spoke. Leaving the grid also leaves the cross-cluster
+# network (Placement ai-grid-network), so a remote spoke loses Submariner first, before the slow
+# cleanup: a failed or slow run never leaves it a route to the hub's maas-db and enrollment.
 kc $HOST label managedcluster $s "$LABEL_ENABLED-" "$LABEL_ROLE-" >/dev/null
+if [[ $s != local-cluster ]]; then
+  log "Submariner (the add-on removes its agent from $s)"
+  # Wait for the network Placement to drop the spoke first: while its decision still lists $s, the
+  # ApplicationSet recreates submariner-$s, which re-applies the add-on. Once it's dropped, deleting
+  # the app prunes the add-on (its resources finalizer, as on Remove in the console); the deletes
+  # after it are for an app made before that finalizer, and are no-ops otherwise.
+  for _ in $(seq 1 24); do
+    [[ " $(kc $HOST get placementdecisions -n openshift-gitops \
+      -l cluster.open-cluster-management.io/placement=ai-grid-network \
+      -o jsonpath='{.items[*].status.decisions[*].clusterName}') " != *" $s "* ]] && break
+    sleep 5
+  done
+  [[ " $(kc $HOST get placementdecisions -n openshift-gitops \
+    -l cluster.open-cluster-management.io/placement=ai-grid-network \
+    -o jsonpath='{.items[*].status.decisions[*].clusterName}') " != *" $s "* ]] ||
+    die "Placement ai-grid-network still selects $s after 120s; check its labels and rerun"
+  kc $HOST delete applications.argoproj.io submariner-$s -n openshift-gitops --ignore-not-found --wait=false >/dev/null
+  kc $HOST delete managedclusteraddon submariner -n $s --ignore-not-found
+  kc $HOST delete submarinerconfigs.submarineraddon.open-cluster-management.io submariner -n $s --ignore-not-found
+fi
 for _ in $(seq 1 24); do
-  [[ -z $(kc $HOST get applications.argoproj.io -n openshift-gitops -o name | grep -- "-$s$") ]] && break; sleep 5
+  # Submariner's app follows the network, not the grid: the hub's stays (removed below for a remote spoke).
+  [[ -z $(kc $HOST get applications.argoproj.io -n openshift-gitops -o name | grep -- "-$s$" | grep -v "/submariner-") ]] && break; sleep 5
 done
 
 log "tenant intent and the model"
@@ -77,9 +100,7 @@ for c in $(kc $s get csv -n limitador-redis -o name 2>/dev/null); do kc $s delet
 kc $s delete ns limitador-redis --ignore-not-found --wait=false
 # Never on local-cluster: there namespace maas-db holds the hub's primary database.
 if [[ $s != local-cluster ]]; then del_app maas-db-replica Cluster; kc $s delete ns maas-db --ignore-not-found --wait=false; fi
-log "Submariner (the add-on removes its agent from $s)"
-kc $HOST delete managedclusteraddon submariner -n $s --ignore-not-found
-kc $HOST delete submarinerconfigs.submarineraddon.open-cluster-management.io submariner -n $s --ignore-not-found
+[[ $s == local-cluster ]] && log "Submariner stays on local-cluster: the hub's maas-db and grid enrollment are reached through it"
 
 log "portal sign-in and the MaaS gateway objects Policies made"
 kc $s delete ns aigrid-portal-auth ai-tenants --ignore-not-found --wait=false

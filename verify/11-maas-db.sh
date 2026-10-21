@@ -23,7 +23,7 @@ uat "replica placement skips the hub" "Placement ai-grid-ingress-remote picked l
 for s in $SPOKES; do
   [[ $(role_of $s) == inference ]] && continue
   # The host only: the URL also holds the password, which must never be printed.
-  want=maas-db-rw.maas-db.svc.clusterset.local; [[ $s == local-cluster ]] && want=maas-db-rw.maas-db.svc
+  want=local-cluster.maas-db-rw.maas-db.svc.clusterset.local; [[ $s == local-cluster ]] && want=maas-db-rw.maas-db.svc
   uat "$s maas-api database host" "Policy maas-db gave $s the wrong host (want $want)" \
     bash -c "kc $s get secret maas-db-config -n redhat-ai-gateway-infra -o jsonpath='{.data.DB_CONNECTION_URL}' | base64 -d | sed -E 's|^[^@]*@([^:/]*).*|\1|' | grep -qx $want"
   # SCRAM bound to the TLS channel: an impersonating server can't complete the login, and SCRAM

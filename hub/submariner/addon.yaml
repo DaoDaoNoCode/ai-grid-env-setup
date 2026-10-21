@@ -16,3 +16,6 @@ spec:
   # each spoke needs at least two nodes whose only role is worker.
   gatewayConfig:
     gateways: 2
+  # The gateways sit behind an AWS NLB for their UDP ports (IPsec NAT-T 4500, NAT discovery 4490),
+  # so clusters reach each other without ACM's cloud-prepare, which needs AWS credentials.
+  loadBalancerEnable: true
