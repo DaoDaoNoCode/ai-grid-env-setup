@@ -43,7 +43,7 @@ for s in $SPOKES; do
       kc $s rollout status deploy/maas-api -n redhat-ai-gateway-infra --timeout=5s
     maas=$(maas_url $s)
     uat "$s MaaS health 200"  "maas-default-gateway not Programmed, or its listener hostname differs: kc $s get gateway -n openshift-ingress" \
-      bash -c "curl -sk -o /dev/null -w '%{http_code}' $maas/maas-api/health | grep -qx 200"
+      bash -c "curl -s -o /dev/null -w '%{http_code}' $maas/maas-api/health | grep -qx 200"
   else
     uat "$s has no MaaS"      "inference values enabled aigateway" bash -c "! kc $s get deploy maas-api -n redhat-ai-gateway-infra"
   fi

@@ -19,7 +19,7 @@ uat "praxis OCI repo"      "Argo CD app gitops-config didn't create Secret praxi
 uat "ACM running"          "MultiClusterHub still installing (about 15 minutes), or short of CPU: kc host get mch -n open-cluster-management -o yaml" \
   bash -c "kc $h get multiclusterhub multiclusterhub -n open-cluster-management -o jsonpath='{.status.phase}' | grep -qx Running"
 uat "ACM console answers"  "the acm console plugin isn't enabled: kc host get consoles.operator.openshift.io cluster -o jsonpath='{.spec.plugins}'" \
-  bash -c "kc $h get consoles.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' | grep -q '\"acm\"' && curl -sk -o /dev/null -w '%{http_code}' https://$console/ | grep -qE '^(200|302)$'"
+  bash -c "kc $h get consoles.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' | grep -q '\"acm\"' && curl -s -o /dev/null -w '%{http_code}' https://$console/ | grep -qE '^(200|302)$'"
 uat "local-cluster Available" "the hub's self-import didn't finish: kc host get managedcluster local-cluster -o yaml" \
   bash -c "kc $h get managedcluster local-cluster -o jsonpath='{.status.conditions[?(@.type==\"ManagedClusterConditionAvailable\")].status}' | grep -qx True"
 uat "MWRS feature gate"    "the ACM operator reset ClusterManager; rerun bootstrap/21-acm-feature-gates.sh" \

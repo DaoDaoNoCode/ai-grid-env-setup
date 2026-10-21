@@ -101,7 +101,7 @@ later.
 **Try:** compare the two issuers yourself:
 
 ```bash
-curl -sk "https://$KC/realms/ai-grid/.well-known/openid-configuration" | jq -r .issuer
+curl -s "https://$KC/realms/ai-grid/.well-known/openid-configuration" | jq -r .issuer
 oc get configmap ai-grid-hub-info -n ai-grid-policies -o jsonpath='{.data.tenantIssuer}'; echo
 ```
 
@@ -302,7 +302,7 @@ You run the calls a tenant makes, by hand.
    ```bash
    auth() { printf 'Authorization: Bearer %s\n' "$1"; }
    TOKEN=$(oc get secret ai-grid-test-users -n keycloak -o jsonpath='{.data.alice}' | base64 -d \
-     | curl -sk -d grant_type=password -d client_id=maas-cli -d scope=openid -d username=alice \
+     | curl -s -d grant_type=password -d client_id=maas-cli -d scope=openid -d username=alice \
          --data-urlencode password@- "https://$KC/realms/ai-grid/protocol/openid-connect/token" \
      | jq -r .access_token)
    ```
@@ -317,15 +317,15 @@ You run the calls a tenant makes, by hand.
 3. List the models MaaS offers `alice`, then mint an API key:
 
    ```bash
-   curl -sk -H @<(auth "$TOKEN") "$MAAS/maas-api/v1/models" | jq '.data[] | {id, url}'
-   KEY=$(curl -sk -X POST -H @<(auth "$TOKEN") -H 'Content-Type: application/json' \
+   curl -s -H @<(auth "$TOKEN") "$MAAS/maas-api/v1/models" | jq '.data[] | {id, url}'
+   KEY=$(curl -s -X POST -H @<(auth "$TOKEN") -H 'Content-Type: application/json' \
      -d '{"name":"uat","expiresIn":"1d"}' "$MAAS/maas-api/v1/api-keys" | jq -r .key)
    ```
 
 4. Call the model with the key:
 
    ```bash
-   curl -sk -H @<(auth "$KEY") -H 'Content-Type: application/json' \
+   curl -s -H @<(auth "$KEY") -H 'Content-Type: application/json' \
      -d '{"model":"facebook-opt-125m","messages":[{"role":"user","content":"Hello"}],"max_tokens":20}' \
      "$MAAS/models-as-a-service/facebook-opt-125m/v1/chat/completions" | jq .
    ```
