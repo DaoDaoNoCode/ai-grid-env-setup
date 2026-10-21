@@ -10,6 +10,6 @@ patches:
   - target: { kind: Deployment, name: ai-grid-provider-console }
     patch: |
       - { op: test, path: /spec/template/spec/containers/1/name, value: bff }
-      - { op: replace, path: /spec/template/spec/containers/1/image, value: "ghcr.io/ai-grid-cloud/ai-grid-provider-console:sha-0c13a62c11ddfe6c1739ae1d1d1054d341427873@sha256:12b3df6e2de521c8900cd935416762c60d837ab0ea1a57c5e0510bc5992bac6c" }
+      - { op: replace, path: /spec/template/spec/containers/1/image, value: "ghcr.io/ai-grid-cloud/ai-grid-provider-console:sha-4f04ff5620bd54904a10f7fbdab857c3cdd1ede5@sha256:69bfdbb5eb7ce6411ccfe28c0c1aecf8983b50de8e4fa79c2c71a8cc501312ee" }
       - { op: test, path: /spec/template/spec/containers/2/name, value: ai-grid-backend }
-      - { op: replace, path: /spec/template/spec/containers/2/image, value: "ghcr.io/ai-grid-cloud/ai-grid-provider-backend:sha-5a5c51e996199bb9003a1ac61b7061ab9db83af9@sha256:b9a4bf8b9ea3309bb5cdf7241a3c920fcfffb21dad653f0f142bbe05ca10d862" }
+      - { op: replace, path: /spec/template/spec/containers/2/image, value: "ghcr.io/ai-grid-cloud/ai-grid-provider-backend:sha-993eef772bbff68f8b192cd4ee2fd39fb74054b2@sha256:fb74c4bc14a09f97d05dad04b669dede5e0e0f9287564035a0dfd7a84550573d" }
