@@ -12,6 +12,24 @@ spec:
       limits: { memory: 4Gi }
   # Argo CD has no built-in health for these kinds; without a check it calls them Healthy at once.
   resourceHealthChecks:
+    # ACM Policies, as Argo CD's built-in check reads them, except the grid's invite Policies
+    # (namespace grid-enrollment): each stays NonCompliant until the chart's PostSync Job mints its
+    # token, and Argo CD runs PostSync hooks only once every resource is healthy, so the built-in
+    # check deadlocks every new invite. Their compliance is ACM's to show (verify/05).
+    - group: policy.open-cluster-management.io
+      kind: Policy
+      check: |
+        -- No compliance yet: placed on no cluster (as the built-in check, Healthy).
+        hs = { status = "Healthy", message = "No compliance reported: placed on no cluster" }
+        local c = obj.status ~= nil and obj.status.compliant or nil
+        if c == "Compliant" then hs.status = "Healthy"; hs.message = "Compliant"
+        elseif c == "NonCompliant" then
+          if obj.metadata.namespace == "grid-enrollment" then
+            hs.status = "Healthy"; hs.message = "Invite NonCompliant until its token is minted; see ACM"
+          else hs.status = "Degraded"; hs.message = "NonCompliant" end
+        elseif c == "Pending" then hs.status = "Progressing"; hs.message = "Pending: waiting on a Policy it depends on"
+        end
+        return hs
     - group: k8s.keycloak.org
       kind: Keycloak
       check: |

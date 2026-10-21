@@ -26,4 +26,12 @@ for s in $SPOKES; do
     bash -c "l=\$(kc $s get gridsites -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{\"\\n\"}{end}') || exit 1; grep -q '^$s ' <<<\"\$l\" || exit 1; ! grep -v '^$s ' <<<\"\$l\" | grep -v ' Active\$' | grep -q ."
   uat "$s ai-grid-ready"     "DSC not Ready or the grid operator not running on $s (D3)" pol $s ai-grid-ready
 done
+# Remote sites: an invite token, delivered with the CA bundle and gossip key by ACM Policy
+# grid-invite-<site> (Argo CD calls it Healthy while it waits; this is its real state).
+for s in $SITES; do
+  uat "$s invite minted" "the invite Job (PostSync) hasn't run: kc host get jobs -n grid-enrollment; or invites.$s is missing from apps/grid-enrollment" \
+    kc $h get secret grid-invite-$s -n grid-enrollment
+  uat "$s invite delivered" "Policy grid-invite-$s NonCompliant: kc host get policy grid-enrollment.grid-invite-$s -n $s -o yaml" \
+    bash -c "kc $h get policy grid-enrollment.grid-invite-$s -n $s -o jsonpath='{.status.compliant}' | grep -qx Compliant"
+done
 summary
