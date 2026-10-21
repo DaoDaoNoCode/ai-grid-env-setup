@@ -5,11 +5,13 @@ metadata:
   name: openshift-gitops
   namespace: openshift-gitops
 spec:
-  # Once ACM hands it clusters, 2Gi runs out during startup.
+  # Argo CD caches every resource of each cluster it manages: the hub twice (in-cluster, and
+  # local-cluster through ACM's cluster proxy) plus each remote spoke. 4Gi was OOMKilled once one
+  # remote spoke with OpenShift AI joined; 2Gi runs out during startup.
   controller:
     resources:
       requests: { memory: 2Gi }
-      limits: { memory: 4Gi }
+      limits: { memory: 8Gi }
   # Argo CD has no built-in health for these kinds; without a check it calls them Healthy at once.
   resourceHealthChecks:
     # ACM Policies, as Argo CD's built-in check reads them, except the grid's invite Policies
