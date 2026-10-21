@@ -22,6 +22,13 @@ spec:
   syncPolicy: { preserveResourcesOnDeletion: true }
   # Placement ai-grid-network, not ai-grid-spokes: the hub stays on the network when it leaves the
   # grid. These apps write only to the hub, so the spoke needs no Argo CD cluster Secret.
+  # Leaving the network removes it: a remote spoke's app carries the resources finalizer, so when
+  # the Placement drops the spoke (Remove in the console), deleting the app deletes its add-on and
+  # SubmarinerConfig, and ACM takes Submariner off the spoke. The hub's app has none, so nothing,
+  # not even deleting this ApplicationSet, takes the hub off the network.
+  templatePatch: |
+    metadata:
+      finalizers: {{`{{ if eq .clusterName "local-cluster" }}[]{{ else }}[resources-finalizer.argocd.argoproj.io]{{ end }}`}}
   generators:
     - clusterDecisionResource:
         configMapRef: acm-placement

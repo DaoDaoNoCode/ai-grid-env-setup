@@ -85,8 +85,10 @@ controller needs 8Gi once it caches a second cluster.
 **Teardown** (`make teardown`) stops delivery and leaves what it installed: it unlabels the spokes,
 deletes the root ApplicationSet, then everything the delivery apps `ai-grid-spokes` and
 `ai-grid-policies` created (found by Argo CD's tracking annotation), then those apps. No Application
-has a resources finalizer, every ApplicationSet preserves resources on deletion, and ACM Policies
-don't prune, so OpenShift AI, the grid and the hub services keep running. Not yet run on `aio`.
+has a resources finalizer except a remote spoke's `submariner-<site>` (leaving the network removes
+Submariner from that spoke, as Remove in the console does), every ApplicationSet preserves resources
+on deletion, and ACM Policies don't prune, so OpenShift AI, the grid and the hub services keep
+running. Not yet run on `aio`.
 
 **Unlabel drill** (Task 8 Step 4, 2026-10-19): removing `ai-grid/enabled` from `local-cluster`
 removed its six delivery Applications within 21 s and its Policies; the DSC stayed Ready and the grid

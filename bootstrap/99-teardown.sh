@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Stops delivery and leaves what it installed: every Application here has no resources finalizer and
-# every ApplicationSet preserves resources on deletion, and ACM Policies don't prune what they
+# Stops delivery and leaves what it installed: no Application here has a resources finalizer (except
+# a remote spoke's submariner-<site>: that spoke leaves the network, as on Remove), every
+# ApplicationSet preserves resources on deletion, and ACM Policies don't prune what they
 # created. local-cluster's OpenShift AI, the grid and the hub services (ACM, Keycloak, enrollment,
 # maas-db) stay running; demo.redhat.com deletes the clusters themselves.
 source "$(dirname "$0")/lib.sh"

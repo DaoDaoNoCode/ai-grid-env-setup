@@ -36,4 +36,8 @@ for s in $NETWORK; do
     done
   fi
 done
+# Leaving the grid leaves the network (the app's resources finalizer): no cluster but the hub and the
+# members keeps the add-on, and with it a route to the hub's maas-db and enrollment.
+uat "only members on the network" "a non-member keeps managedclusteraddon submariner (the add-on outlived its Application): kc host delete managedclusteraddon submariner -n <cluster>" \
+  bash -c "a=\$(kc $h get managedclusteraddon -A --field-selector metadata.name=submariner -o jsonpath='{.items[*].metadata.namespace}') || exit 1; for c in \$a; do case \" $NETWORK \" in *\" \$c \"*) ;; *) exit 1;; esac; done"
 summary

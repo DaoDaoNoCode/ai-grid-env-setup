@@ -56,8 +56,9 @@ kc $HOST label managedcluster $s "$LABEL_ENABLED-" "$LABEL_ROLE-" >/dev/null
 if [[ $s != local-cluster ]]; then
   log "Submariner (the add-on removes its agent from $s)"
   # Wait for the network Placement to drop the spoke first: while its decision still lists $s, the
-  # ApplicationSet recreates submariner-$s, which re-applies the add-on, and later removes the app
-  # with preserveResourcesOnDeletion, leaving the add-on (and the route to the hub) behind.
+  # ApplicationSet recreates submariner-$s, which re-applies the add-on. Once it's dropped, deleting
+  # the app prunes the add-on (its resources finalizer, as on Remove in the console); the deletes
+  # after it are for an app made before that finalizer, and are no-ops otherwise.
   for _ in $(seq 1 24); do
     [[ " $(kc $HOST get placementdecisions -n openshift-gitops \
       -l cluster.open-cluster-management.io/placement=ai-grid-network \
