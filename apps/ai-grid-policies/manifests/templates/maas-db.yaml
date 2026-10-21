@@ -43,8 +43,9 @@ spec:
             # address. MaaS's own egress policy (maas-api-egress-restrict) admits 5432 only to
             # postgres pods it can name in-cluster, so allow that one address, port 5432 only: the
             # hub Service's GlobalIngressIP, read on the hub. Without one the CIDR is invalid and the
-            # Policy fails closed. Harmless on the hub's own spoke.
-            - complianceType: musthave
+            # Policy fails closed. Harmless on the hub's own spoke. mustonlyhave: musthave never
+            # removes list items, so a reallocated address would leave the old one allowed.
+            - complianceType: mustonlyhave
               objectDefinition:
                 apiVersion: networking.k8s.io/v1
                 kind: NetworkPolicy
