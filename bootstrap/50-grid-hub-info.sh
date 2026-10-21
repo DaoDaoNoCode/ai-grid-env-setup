@@ -12,7 +12,11 @@ pinned=$(yq '.hubSiteDigest' "$(dirname "$0")/../apps/ai-grid-spokes/manifests/v
 [[ $pinned == "$digest" ]] || log "commit this digest: set hubSiteDigest: \"$digest\" in apps/ai-grid-spokes/manifests/values.yaml (D8)"
 # Each remote site's own digest, once it has enrolled: its provider gateway pins it (siteDigests).
 for s in $SITES; do
-  fp=$(kc $s get gridnetworks -n "$GRID_NS" -o jsonpath='{.items[0].status.identity.fingerprint}' 2>/dev/null || true)
+  # No GridNetwork kind, object or fingerprint yet means not enrolled; any other error stops.
+  if ! fp=$(kc $s get gridnetworks -n "$GRID_NS" -o jsonpath='{.items[*].status.identity.fingerprint}' 2>&1); then
+    [[ $fp == *"doesn't have a resource type"* ]] || die "can't read $s's GridNetwork: $fp"
+    fp=
+  fi
   [[ -n $fp ]] || { log "$s hasn't enrolled yet: rerun after adding it to AI Grid"; continue; }
   pinned=$(yq ".siteDigests[\"$s\"]" "$(dirname "$0")/../apps/ai-grid-spokes/manifests/values.yaml")
   [[ $pinned == "$fp" ]] || log "commit this digest: set siteDigests.$s: \"$fp\" in apps/ai-grid-spokes/manifests/values.yaml"

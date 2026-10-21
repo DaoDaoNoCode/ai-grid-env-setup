@@ -41,5 +41,8 @@ for s in $SITES; do
     kc $h get secret grid-invite-$s -n grid-enrollment
   uat "$s invite delivered" "Policy grid-invite-$s NonCompliant: kc host get policy grid-enrollment.grid-invite-$s -n $s -o yaml" \
     bash -c "kc $h get policy grid-enrollment.grid-invite-$s -n $s -o jsonpath='{.status.compliant}' | grep -qx Compliant"
+  # A missing or mistyped siteDigests key falls back to the zeros pin: the provider refuses everyone.
+  uat "$s digest pinned" "siteDigests.$s in apps/ai-grid-spokes/manifests/values.yaml is missing, not 64 hex, or from another build: bash bootstrap/50-grid-hub-info.sh prints it" \
+    bash -c "p=\$(yq '.siteDigests[\"$s\"]' apps/ai-grid-spokes/manifests/values.yaml); grep -Eqx '[0-9a-f]{64}' <<<\"\$p\" && [ \"\$p\" = \"\$(kc $s get gridnetworks -n $GRID_NS -o jsonpath='{.items[*].status.identity.fingerprint}')\" ]"
 done
 summary
