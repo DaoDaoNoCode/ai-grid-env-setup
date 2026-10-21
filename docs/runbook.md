@@ -52,12 +52,16 @@ console and the databases, and no OpenShift AI.
 
 | Step | Command | What happens | Time |
 |---|---|---|---|
+| a | `make spoke-gpu SPOKE=<name>` (optional) | a GPU MachineSet cloned from one of the spoke's workers, against `$KUBEDIR/<name>`: `GPU_INSTANCE_TYPE` (default `g6.xlarge`, NVIDIA L4), 1 replica, the clone's zone (`GPU_AZ` picks another), label `node-role.kubernetes.io/gpu`, taint `nvidia.com/gpu:NoSchedule`; waits for the node, and prints the Machine's own error if AWS refuses it (capacity, unsupported type). `DRY_RUN=1` prints the MachineSet. Remove with `make spoke-gpu-delete SPOKE=<name>`. Ported from rhoai-nightly | 5 to 15 min |
+| b | `make spoke-cpu SPOKE=<name>` (optional) | the same for a CPU worker MachineSet (`CPU_INSTANCE_TYPE` `m6a.4xlarge`, `CPU_REPLICAS` 1), when the spoke needs room; `make spoke-cpu-delete` removes it | 5 to 15 min |
+| c | `make spoke-infra SPOKE=<name>` | GPU node (a), plus the CPU worker (b) when `CPU=1`. No mirror or user-workload-monitoring step: ACM Policies deliver those after the Add | – |
+| e | `make spoke-join SPOKE=<name>` (on the hub) | steps 1 to 3 below in one go: import, ensures `invites.<name>` and `spokes/clusters/<name>/models` (created if missing), `36-portal-clients.sh` for every spoke invited in git, plus `local-cluster` while it's a member (a spoke whose kubeconfig isn't in `$KUBEDIR` is logged and keeps the callback it had); then shows the `git diff --stat` of those two paths and the full diff of `values.yaml`, and asks "Commit and push to <GIT_REF>? [y/N]" (stages only them; without a terminal it prints `make spoke-commit SPOKE=<name>`, which commits and pushes them without asking) | about 1 min |
 | 1 | `SPOKES="local-cluster site-a" bash bootstrap/45-import.sh` (kubeconfig at `$KUBEDIR/site-a`) | ManagedCluster `site-a`, no `ai-grid/*` labels: importing gives no grid membership and no network yet | joined 13 s |
 | 2 | add `invites.<site>` to `apps/grid-enrollment/manifests/values.yaml` and `spokes/clusters/<site>/models`, commit | the invite Job mints a 24 h token; ACM delivers it to the site | about 1 min |
 | 3 | `SPOKES="… site-a" bash bootstrap/36-portal-clients.sh` | `maas-cli` takes the site's portal callback | seconds |
 | 4 | **Add to AI Grid** in the console (`combined`, a location) | as for `local-cluster`; membership also puts the site on Submariner with the hub (Placement `ai-grid-network` selects `ai-grid/enabled`; load-balancer mode, no AWS credentials), and the site enrolls with enrollment over it (`local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local:8443`) | tunnel up about 4 min; enrolled 72 s; Provisioned 11 min |
 | 5 | `bash bootstrap/50-grid-hub-info.sh`, then commit the printed `siteDigests.<site>` | the site's provider gateway pins its own certificate (until then it pins zeros and refuses every caller) | – |
-| 6 | `CONFIRM=local-cluster bash bootstrap/98-uninstall-spoke.sh local-cluster`, then `SPOKES=site-a bash bootstrap/36-portal-clients.sh` | the hub leaves the grid and drops OpenShift AI; its Submariner, `maas-db` and `grid` stay | 159 s |
+| 6 | `CONFIRM=local-cluster bash bootstrap/98-uninstall-spoke.sh local-cluster` (now `make spoke-uninstall SPOKE=local-cluster REVOKE_TENANT_KEYS=1` while `site-a` is `combined`: it revokes every tenant API key), then `SPOKES=site-a bash bootstrap/36-portal-clients.sh` | the hub leaves the grid and drops OpenShift AI; its Submariner, `maas-db` and `grid` stay | 159 s |
 | 7 | `SPOKES=site-a SPOKE_ROLES=site-a=combined SPOKE_LOCATIONS=site-a=us-east make verify` | 177 checks (221 with both spokes) | about 3 min |
 
 `invites.site-a` (`apps/grid-enrollment/manifests/values.yaml`) and `siteDigests.site-a`
@@ -98,8 +102,18 @@ with, so the Applications stayed. The spoke ApplicationSets now take membership 
 `ai-grid-spokes` (a `clusterDecisionResource` matrix). The role still comes from the cluster Secret's
 labels, so changing a spoke's role may need its Secret refreshed (untested).
 
-**Spoke uninstall** (`CONFIRM=<spoke> bash bootstrap/98-uninstall-spoke.sh <spoke>`): removes a spoke's AI
-Grid layer so relabelling provisions it from zero. It saves the Applications' inventory to
+**Spoke uninstall** (`make spoke-uninstall SPOKE=<spoke>`, which asks you to type the name at a terminal;
+without one, add `CONFIRM=<spoke>`): removes a spoke's AI Grid layer so relabelling provisions it from zero.
+Run it instead of Remove in the console, not after it: it reads the spoke's Applications, which Remove
+deletes. If Remove came first, it stops and says to add the spoke again, wait for its apps to sync, and rerun.
+A remote spoke keeps its route to the hub's `maas-db` (label `ai-grid/uninstalling`, which Placement
+`ai-grid-network` also selects) until MaaS's cleanup is done. MaaS's objects go in order: subscriptions,
+then the AITenant, whose cleanup revokes the tenant's API keys in the hub's `maas-db` and then deletes its
+MaaSTenantConfig. Namespace `ai-tenants` stays until then. Only then does the spoke leave the network and drop
+its `maas-db` replica. A run that stops leaves the label and says so: rerun, or remove it on the hub with
+`oc label managedcluster <spoke> ai-grid/uninstalling-`. The AITenant's cleanup revokes **every**
+API key of the tenant, so on an `ingress` or `combined` spoke the script stops while another `ingress` or
+`combined` spoke is a member, unless you add `REVOKE_TENANT_KEYS=1`. It saves the Applications' inventory to
 `out/uninstall-<spoke>.txt` before unlabelling (a rerun reuses it), deletes tenant intent, the model and
 the grid's objects, then the MaaS objects that carry cleanup finalizers while OpenShift AI's controllers
 still run, then OpenShift AI and MaaS, their operators, the nightly catalog and the namespaces. It keeps

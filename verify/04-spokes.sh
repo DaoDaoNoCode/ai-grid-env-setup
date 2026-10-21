@@ -3,7 +3,7 @@ source "$(dirname "$0")/lib.sh"
 h=$HOST
 # A hub that isn't a grid member keeps no OpenShift AI (removed with bootstrap/98-uninstall-spoke.sh).
 if [[ " $SPOKES " != *" local-cluster "* ]]; then
-  uat "hub runs no OpenShift AI" "local-cluster left the grid but still has a DataScienceCluster or OpenShift AI's operator: CONFIRM=local-cluster bash bootstrap/98-uninstall-spoke.sh local-cluster" \
+  uat "hub runs no OpenShift AI" "local-cluster left the grid but still has a DataScienceCluster or OpenShift AI's operator: make spoke-uninstall SPOKE=local-cluster CONFIRM=local-cluster (add REVOKE_TENANT_KEYS=1 while another ingress or combined spoke is a member)" \
     bash -c "[ -z \"\$(kc $h get datasciencecluster -o name 2>/dev/null)\" ] && ! kc $h get ns redhat-ods-operator >/dev/null 2>&1"
   uat "hub keeps the network" "Submariner left local-cluster: the hub's maas-db and enrollment are reached through it (Placement ai-grid-network)" \
     bash -c "kc $h get managedclusteraddon submariner -n local-cluster -o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}' | grep -qx True"

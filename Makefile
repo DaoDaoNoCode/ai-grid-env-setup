@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: hub spokes all verify console teardown
+.PHONY: hub spokes all verify console teardown spoke-gpu spoke-gpu-delete spoke-cpu spoke-cpu-delete spoke-infra spoke-join spoke-commit spoke-uninstall
 # Run hack/quay-env.sh once first. Every script is safe to rerun.
 hub:
 	bash bootstrap/00-gitops.sh
@@ -21,3 +21,36 @@ console:
 	bash bootstrap/60-console.sh
 teardown:
 	bash bootstrap/99-teardown.sh
+# Preparing a remote spoke (kubeconfig $KUBEDIR/<SPOKE>); see the runbook's remote-spoke table.
+# GPU_INSTANCE_TYPE (g6.xlarge), GPU_REPLICAS, GPU_AZ, CPU_INSTANCE_TYPE, CPU_REPLICAS, DRY_RUN=1 tune them.
+need-spoke = @test -n "$(SPOKE)" || { echo "usage: make $@ SPOKE=<name>"; exit 1; }
+spoke-gpu:
+	$(need-spoke)
+	bash hack/spoke-machineset.sh gpu apply $(SPOKE)
+spoke-gpu-delete:
+	$(need-spoke)
+	bash hack/spoke-machineset.sh gpu delete $(SPOKE)
+spoke-cpu:
+	$(need-spoke)
+	bash hack/spoke-machineset.sh cpu apply $(SPOKE)
+spoke-cpu-delete:
+	$(need-spoke)
+	bash hack/spoke-machineset.sh cpu delete $(SPOKE)
+# GPU node; add CPU=1 for a CPU worker too. ACM Policies deliver the mirror and monitoring after the Add.
+spoke-infra:
+	$(need-spoke)
+	$(MAKE) spoke-gpu SPOKE=$(SPOKE)
+	$(if $(CPU),$(MAKE) spoke-cpu SPOKE=$(SPOKE))
+# On the hub: import, invite, models directory, portal callback; then offers to commit and push them.
+spoke-join:
+	$(need-spoke)
+	bash bootstrap/46-spoke-join.sh $(SPOKE)
+# Commits and pushes only the spoke's invite and models directory, without asking (for re-runs).
+spoke-commit:
+	$(need-spoke)
+	bash hack/spoke-commit.sh $(SPOKE)
+# Deletes OpenShift AI, MaaS and the grid from the spoke (bootstrap/98-uninstall-spoke.sh). Asks for the
+# name at a terminal; otherwise CONFIRM=<SPOKE>. Use it instead of Remove in the console, not after.
+spoke-uninstall:
+	$(need-spoke)
+	bash bootstrap/98-uninstall-spoke.sh $(SPOKE)

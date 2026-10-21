@@ -25,7 +25,11 @@ for s in $SPOKES; do
   uris+=("https://maas.$domain/oauth2/callback")
 done
 id=$(api "$base/clients?clientId=$cid" | jq -re '.[0].id') || die "client $cid missing: realm ai-grid not imported (bootstrap/35-keycloak.sh)"
-api "$base/clients/$id" | jq '.standardFlowEnabled = true | .redirectUris = $ARGS.positional
+# KEEP_OTHER_URIS=1 (46-spoke-join.sh, missing some spokes' kubeconfigs) adds to the list instead of
+# replacing it, so the spokes it can't resolve keep their callbacks; a run with every spoke drops stale ones.
+keep=${KEEP_OTHER_URIS:-}; [[ $keep == 1 ]] || keep=
+api "$base/clients/$id" | jq --arg keep "$keep" '.standardFlowEnabled = true
+  | .redirectUris = (if $keep == "1" then .redirectUris + $ARGS.positional | unique else $ARGS.positional end)
   | .attributes["pkce.code.challenge.method"] = "S256" | .attributes["access.token.lifespan"] = "3600"' --args "${uris[@]}" \
   | api -X PUT "$base/clients/$id" -d @- >/dev/null
 # Earlier designs (a cluster-login identity provider per spoke, then a confidential maas-portal
@@ -35,4 +39,4 @@ for old in $(api "$base/clients" | jq -r '.[] | select((.clientId|startswith("oc
 done
 for sname in $(kc $HOST get secret -n ai-grid-policies -o name | grep -E '/(portal-idp-|maas-portal-oidc$)'); do kc $HOST delete -n ai-grid-policies "$sname" >/dev/null; done
 unset tok
-log "client $cid takes the portal callback of ${#uris[@]} ingress spoke(s)"
+log "client $cid takes the portal callback of ${#uris[@]} ingress spoke(s)${keep:+, and keeps its other callbacks}"
