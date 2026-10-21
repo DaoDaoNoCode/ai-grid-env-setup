@@ -1,8 +1,8 @@
 # Ingress spokes: the consumer gateway MaaS calls (ClusterIP grid-gateway, TLS on Service port 443 with
-# a service-CA certificate, behind MaaS's authentication; spokes/grid/consumer limits who may reach it). On a combined spoke its one
-# backend is this site's provider gateway over the grid's mutual TLS, then every remote inference site
-# in providerGlobalIPs. A rendered consumer can't name its own site as a backend, so its localSite is
-# maas-edge.
+# a service-CA certificate, behind MaaS's authentication; spokes/grid/consumer limits who may reach it). Its
+# backends, over the grid's mutual TLS: on a combined spoke this site's provider gateway; then every
+# remote inference site in providerGlobalIPs. An ingress spoke has no provider, so it needs at least
+# one of those (with none, the chart's schema refuses backends: null). A rendered consumer can't name its own site as a backend, so its localSite is maas-edge.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata: { name: ai-grid-grid-consumer, namespace: openshift-gitops }
@@ -11,7 +11,9 @@ spec:
   goTemplateOptions: ["missingkey=error"]
   syncPolicy: { preserveResourcesOnDeletion: true }
   generators:
-    {{- include "ai-grid-spokes.generators" (list "combined") | nindent 4 }}
+    {{- /* Ingress spokes only once there's a remote inference site to call: with none, an ingress
+           consumer would have no backend, which the chart refuses. */}}
+    {{- include "ai-grid-spokes.generators" (ternary (list "ingress" "combined") (list "combined") (gt (len .Values.providerGlobalIPs) 0)) | nindent 4 }}
   template:
     metadata: { name: 'grid-consumer-{{`{{.name}}`}}' }
     spec:
@@ -30,7 +32,9 @@ spec:
                 model: {{ .Values.modelName }}
                 auth: { mode: none }
                 backends:
+                  {{`{{- if eq (index .metadata.labels "ai-grid/role") "combined" }}`}}
                   {{`{{.name}}`}}: { endpoint: "{{ .Values.providerIP }}:8443" }
+                  {{`{{- end }}`}}
                   {{- /* Each remote inference site, at its Globalnet address; the chart makes it a
                          mutual-TLS backend with SNI <site>.grid.internal. Never this site itself. */}}
                   {{- range $site, $ip := .Values.providerGlobalIPs }}
