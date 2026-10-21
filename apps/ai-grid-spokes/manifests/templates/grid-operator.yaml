@@ -31,7 +31,9 @@ spec:
                   endpoint: https://{{ .Values.modelName }}-kserve-workload-svc.aigrid-models.svc:8000
             # The provider gateway's fixed ClusterIP: the address the operator advertises and probes
             # (no LoadBalancer to discover), which moves the site from Discovered to Active.
-            gateway: { address: "{{ .Values.providerIP }}:8443" }
+            {{- /* An inference site in providerGlobalIPs advertises its Globalnet address instead,
+                   the one other clusters reach. */}}
+            gateway: { address: "{{ include "ai-grid-spokes.bySite" (list .Values.providerGlobalIPs .Values.providerIP) }}:8443" }
             {{`{{- else }}`}}
             grid: { id: {{ .Values.gridId }}, network: {{ .Values.gridNetwork }} }
             {{`{{- end }}`}}
@@ -50,3 +52,9 @@ spec:
         automated: { selfHeal: true }
         retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
         syncOptions: [CreateNamespace=true]
+{{- /* An ApplicationSet expression for the cluster's value in a map of site to value, else the
+       default; with an empty map, the default alone. Argument: (list map default). */ -}}
+{{- define "ai-grid-spokes.bySite" -}}
+{{- $m := first . }}
+{{- range $s, $v := $m }}{{`{{ if eq .name "`}}{{ $s }}{{`" }}`}}{{ $v }}{{`{{ else }}`}}{{ end }}{{ last . }}{{ range $m }}{{`{{ end }}`}}{{ end }}
+{{- end }}
