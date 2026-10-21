@@ -1,5 +1,5 @@
 # Remote grid sites reach enrollment over Submariner as
-# grid-enrollment.grid-enrollment.svc.clusterset.local:8443 (values: serving.extraDnsNames).
+# local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local:8443 (values: serving.extraDnsNames).
 apiVersion: multicluster.x-k8s.io/v1alpha1
 kind: ServiceExport
 metadata:

@@ -19,7 +19,7 @@ spec:
   bootstrap: { initdb: { database: maas, owner: maas_api } }
   # Remote spokes connect by the Submariner name; the server certificate names it too.
   certificates:
-    serverAltDNSNames: [maas-db-rw.maas-db.svc.clusterset.local]
+    serverAltDNSNames: [maas-db-rw.maas-db.svc.clusterset.local, local-cluster.maas-db-rw.maas-db.svc.clusterset.local]
   storage: { size: 20Gi }
   resources:
     requests: { cpu: 250m, memory: 1Gi }

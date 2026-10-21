@@ -12,9 +12,9 @@ apiVersion: cluster.open-cluster-management.io/v1
 kind: ManagedCluster
 metadata:
   name: $s
-  # ai-grid/network: on the cross-cluster network (Submariner, Placement ai-grid-network), so it can
-  # reach the hub's maas-db and grid enrollment once it's added to AI Grid.
-  labels: { cluster.open-cluster-management.io/clusterset: default, cloud: auto-detect, vendor: auto-detect, ai-grid/network: "true" }
+  # No ai-grid/* labels: it joins the cross-cluster network (Submariner) only when the console adds
+  # it to AI Grid, so a cluster that isn't a member gets no route to the hub's maas-db or enrollment.
+  labels: { cluster.open-cluster-management.io/clusterset: default, cloud: auto-detect, vendor: auto-detect }
 spec: { hubAcceptsClient: true }
 YAML
   # ACM creates the cluster's namespace on the hub once it registers the ManagedCluster.

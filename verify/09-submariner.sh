@@ -31,8 +31,8 @@ for s in $NETWORK; do
   if [[ $s != local-cluster ]]; then
     # From an ordinary pod on the spoke (Lighthouse's agent): DNS, the tunnel and Globalnet together.
     for svc in maas-db-rw.maas-db:5432 grid-enrollment.grid-enrollment:8443; do
-      uat "$s reaches ${svc%%:*}.svc.clusterset.local" "no ServiceImport (Policy clusterset-namespaces: the namespace must exist on $s), the tunnel, or the hub's NetworkPolicy" \
-        bash -c "kc $s exec -n submariner-operator deploy/submariner-lighthouse-agent -- timeout 5 bash -c '</dev/tcp/${svc%%:*}.svc.clusterset.local/${svc##*:}'"
+      uat "$s reaches local-cluster.${svc%%:*}.svc.clusterset.local" "no ServiceImport (Policy clusterset-namespaces: the namespace must exist on $s), the tunnel, or the hub's NetworkPolicy" \
+        bash -c "kc $s exec -n submariner-operator deploy/submariner-lighthouse-agent -- timeout 5 bash -c '</dev/tcp/local-cluster.${svc%%:*}.svc.clusterset.local/${svc##*:}'"
     done
   fi
 done
