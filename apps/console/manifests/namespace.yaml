@@ -1,0 +1,8 @@
+# The console's namespace. The chart leaves it to the installer, as Helm charts do; the kustomize base
+# this app deployed before included it, so on existing hubs app console owns it. Without it here the
+# app would stay OutOfSync, and a sync with prune would delete the namespace and its Secrets.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-grid
+  labels: { app.kubernetes.io/name: ai-grid-provider-console, app.kubernetes.io/part-of: ai-grid }

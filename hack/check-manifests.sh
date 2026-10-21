@@ -44,4 +44,19 @@ for d in $(find apps/*/manifests hub spokes -type d | sort); do
     echo "yaml      $d ($ok of $(wc -w <<<"$files" | tr -d ' ') files parsed)"
   fi
 done
+
+# An app whose chart lives in another repository (spec.chart in its application.yaml) is templated at
+# the pinned commit with the app's values.yaml, as the root ApplicationSet deploys it.
+for a in apps/*/application.yaml; do
+  [[ $(yq '.spec | has("chart")' "$a") == true ]] || continue
+  d=$(dirname "$a") tmp=$(mktemp -d)
+  url=$(yq .spec.chart.repoURL "$a") rev=$(yq .spec.chart.targetRevision "$a") path=$(yq .spec.chart.path "$a")
+  if git -C "$tmp" init -q && git -C "$tmp" fetch -q --depth 1 "$url" "$rev" && git -C "$tmp" checkout -q FETCH_HEAD &&
+    helm template "$(yq .spec.chart.releaseName "$a")" "$tmp/$path" -n "$(yq .spec.destination.namespace "$a")" -f "$d/values.yaml" >/dev/null; then
+    echo "chart     $d ($path at $rev, values.yaml)"
+  else
+    fail "$d: chart $path at $rev with values.yaml"
+  fi
+  rm -rf "$tmp"
+done
 exit $bad

@@ -49,4 +49,4 @@ export LABEL_UNINSTALLING=ai-grid/uninstalling   # keeps a spoke on the network 
 # The git source Argo CD builds the hub and spokes from. To try a branch, set both before make hub, e.g.
 # GIT_REPO=https://github.com/<you>/ai-grid-env-setup.git GIT_REF=<branch>, or set git: in clusters.local.yaml.
 export GIT_REPO="${GIT_REPO:-https://github.com/ai-grid-cloud/ai-grid-env-setup.git}" GIT_REF="${GIT_REF:-main}"
-# Provider console images and commits are pinned in apps/console/manifests (runbook, Provider console).
+# Provider console images and commits are pinned in apps/console (runbook, Provider console).

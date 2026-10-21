@@ -39,3 +39,19 @@ spec:
             - { name: gitRepo, value: "${GIT_REPO}" }
             - { name: gitRef, value: "${GIT_REF}" }
       {{- end }}
+      {{- if hasKey .spec "chart" }}
+      # A chart from another repository (spec.chart: repoURL, targetRevision, path, releaseName), with
+      # values.yaml from the app's directory, plus the app's manifests/ from this repository.
+      source: null
+      sources:
+        - repoURL: {{ .spec.chart.repoURL | quote }}
+          targetRevision: {{ .spec.chart.targetRevision | quote }}
+          path: {{ .spec.chart.path | quote }}
+          helm:
+            releaseName: {{ .spec.chart.releaseName | quote }}
+            valueFiles: ['$env/{{ .path.path }}/values.yaml']
+        - repoURL: ${GIT_REPO}
+          targetRevision: ${GIT_REF}
+          path: '{{ .path.path }}/manifests'
+          ref: env
+      {{- end }}

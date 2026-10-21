@@ -1,9 +1,21 @@
-# The provider console (Task 9): the console repository's own manifests, with images built on the hub.
+# The provider console (Task 9): the console repository's Helm chart at a pinned commit, with this
+# hub's values (values.yaml next to this file), plus manifests/, the fallback image builds.
 metadata:
   name: console
   namespace: openshift-gitops
 spec:
   project: default
+  # Deployed by the root ApplicationSet as a second source, with values.yaml from this directory.
+  # Pinned, not main: the chart includes ClusterRoleBindings that Argo CD applies with cluster-admin, so
+  # a change to what runs on the hub is a reviewed commit here. Bump it with the image pins in
+  # values.yaml and the refs in manifests/builds.yaml, all to the same commits.
+  # For now: console PR 41's head, where the chart is (the images are still at f2b1ab1, whose pod spec
+  # the chart reproduces). When PR 41 merges, all three move to its merge commit.
+  chart:
+    repoURL: https://github.com/ai-grid-cloud/ai-grid-provider-console.git
+    targetRevision: b115b6c87767aea8dc0d79b0c86a1a6ab418ac04
+    path: charts/ai-grid-provider-console
+    releaseName: ai-grid-provider-console
   destination:
     server: https://kubernetes.default.svc
     namespace: ai-grid
