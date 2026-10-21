@@ -1,7 +1,8 @@
 # Ingress spokes: the consumer gateway MaaS calls (ClusterIP grid-gateway, TLS on Service port 443 with
 # a service-CA certificate, behind MaaS's authentication; spokes/grid/consumer limits who may reach it). On a combined spoke its one
-# backend is this site's provider gateway over the grid's mutual TLS. A rendered consumer can't
-# name its own site as a backend, so its localSite is maas-edge. Remote sites' backends come with Task 11.
+# backend is this site's provider gateway over the grid's mutual TLS, then every remote inference site
+# in providerGlobalIPs. A rendered consumer can't name its own site as a backend, so its localSite is
+# maas-edge.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata: { name: ai-grid-grid-consumer, namespace: openshift-gitops }
@@ -30,6 +31,13 @@ spec:
                 auth: { mode: none }
                 backends:
                   {{`{{.name}}`}}: { endpoint: "{{ .Values.providerIP }}:8443" }
+                  {{- /* Each remote inference site, at its Globalnet address; the chart makes it a
+                         mutual-TLS backend with SNI <site>.grid.internal. Never this site itself. */}}
+                  {{- range $site, $ip := .Values.providerGlobalIPs }}
+                  {{`{{- if ne .name "`}}{{ $site }}{{`" }}`}}
+                  {{ $site }}: { endpoint: "{{ $ip }}:8443" }
+                  {{`{{- end }}`}}
+                  {{- end }}
                 # MaaS's gateway originates HTTPS to port 443: serve TLS with a service-CA certificate.
                 listenerTls: { enabled: true, existingSecret: grid-gateway-serving-tls }
               tls: { existingSecret: grid-site-identity, caSecret: grid-ca }
