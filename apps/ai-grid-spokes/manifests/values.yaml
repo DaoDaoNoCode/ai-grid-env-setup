@@ -24,9 +24,16 @@ siteDigests:
 # Inference sites that other clusters' consumers call: the Globalnet address of each one's exported
 # provider Service (spokes/grid/provider-export). A literal IP, because the gateways refuse host
 # names. It changes on every build: bootstrap/50-grid-hub-info.sh prints it once the site is added;
-# commit it here. Empty: every consumer calls only its own site's provider.
+# commit it here. Empty: no site is called from another; a combined site's consumer calls only its own
+# provider, and an ingress spoke can't render a consumer at all (it has no backend), so add an
+# inference site before an ingress one.
 providerGlobalIPs: {}
 #  site-b: "242.x.y.z"
+# The sites whose consumers call those inference sites: every ingress and combined spoke, and
+# local-cluster while the hub is one. Each inference provider pins exactly these sites' digests
+# (verify/05 checks the list against the spokes' roles).
+consumerSites: []
+#  - site-a
 # Remote spokes enroll with the hub's enrollment over Submariner (apps/grid-enrollment).
 enrollHost: local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local:8443
 # A remote site's gossip Service. ClusterIP while it's the only remote site: it has no peer, and a
