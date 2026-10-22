@@ -1,5 +1,5 @@
 # gitRepo and gitRef come from the root ApplicationSet as Helm parameters (bootstrap/00-gitops.sh).
-odhGitopsRef: "8897054629471af15b79573a7a158c71ffb30abf"         # odh-gitops main, 2026-10-16 (DSC v3, dashboard.dsc.maasPortal)
+odhGitopsRef: "e6fe1032cbb35ba4de7e3c053dde425cbe63fffe"         # odh-gitops main, 2026-10-21 (PR 181; DSC aiGrid left unset, see spokes/platform/values/common.yaml)
 gridVersion: 0.2.0             # switch to 0.2.1 once it's tagged and its charts are published
 # The grid gateway image by digest (the v<gridVersion> tag's multi-arch index); bump with gridVersion:
 # skopeo inspect --raw docker://ghcr.io/praxis-proxy/grid-gateway:v<gridVersion> | shasum -a 256
