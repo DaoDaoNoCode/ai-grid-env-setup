@@ -10,10 +10,11 @@ spec:
   # a change to what runs on the hub is a reviewed commit here. Bump it with the image pins in
   # values.yaml and the refs in manifests/builds.yaml, all to the same commits.
   # For now: console PR 41's head, where the chart is (the images are still at f2b1ab1, whose pod spec
-  # the chart reproduces). When PR 41 merges, all three move to its merge commit.
+  # the chart reproduces, plus an empty MAP_TILE_ATTRIBUTION). When PR 41 merges, all three move to
+  # its merge commit.
   chart:
     repoURL: https://github.com/ai-grid-cloud/ai-grid-provider-console.git
-    targetRevision: b115b6c87767aea8dc0d79b0c86a1a6ab418ac04
+    targetRevision: b1ae3b237e4d50e58c18f1e96b2d73413590a0dc
     path: charts/ai-grid-provider-console
     releaseName: ai-grid-provider-console
   destination:
