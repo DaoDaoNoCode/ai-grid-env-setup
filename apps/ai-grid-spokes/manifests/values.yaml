@@ -36,7 +36,7 @@ consumerSites: []
 #  - site-a
 # Remote spokes enroll with the hub's enrollment over Submariner (apps/grid-enrollment).
 enrollHost: local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local:8443
-# A remote site's gossip Service. ClusterIP while it's the only remote site: it has no peer, and a
-# LoadBalancer would hold the operator until AWS gives it an address. LoadBalancer (an NLB, from
-# platform: aws) once a second remote site joins.
-remoteSwimServiceType: ClusterIP
+# A remote site's gossip Service: LoadBalancer (an NLB, from platform: aws), so remote sites, such as
+# an inference site and the ingress site it serves, gossip with each other. With a single remote site
+# ClusterIP also works and skips the NLB, which holds the operator until AWS gives it an address.
+remoteSwimServiceType: LoadBalancer
