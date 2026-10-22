@@ -242,6 +242,35 @@ model plumbing (the grid-backend Service, NetworkPolicy allow-grid-provider) sta
   designed but not yet verified on a cluster.
 - **GPU operators: what's still unverified.** `spokes/gpu` ran on a g6.xlarge (L4) spoke on 2026-10-21: NFD found the card, the operator built driver 580.105.08, the ClusterPolicy reached `ready`, and the node offered `nvidia.com/gpu: 1`. Not run: g6e (L40S) nodes. The DCGM ServiceMonitor is scraped only with the label `openshift.io/cluster-monitoring=true` on namespace `nvidia-gpu-operator`, which nothing sets.
 - **Metrics have one copy.** S4 runs one replica on one volume; losing the volume loses stored metrics.
+- **The MaaS gateway calls Authorino in plaintext.** The MaaS install guide turns TLS on for
+  Authorino's listener (`setup-authorino-tls.sh`), and odh-model-controller's `<gateway>-authn-ssl`
+  EnvoyFilter then makes the gateway use it; here Policy `authorino-service-ca` deletes that filter
+  instead, and maas-controller reports the tenant `Degraded` ("Authorino TLS is not configured").
+  Setting the chart's `dependencies.rhcl.config.tlsEnabled` alone would stall a new spoke: the
+  authorino operator checks the listener's certificate Secret before it creates Service
+  `authorino-authorino-authorization` (`installationPreflightCheck`), and the service CA issues that
+  Secret only for an annotation on that Service. Turning TLS on needs the steps in order: Authorino up
+  in plaintext, the Service annotated, the Secret issued, then the listener's TLS on (the Kuadrant
+  operator keeps it on), the `mustnothave` rules for `<gateway>-authn-ssl` dropped from Policy
+  `authorino-service-ca` (and verify/04's plaintext check reversed), then a Gateway event so
+  odh-model-controller adds the filter (it decides on Gateway events only; restarting it reconciles
+  them all). Keep this repository's `SSL_CERT_DIR`, which adds the service CA to Authorino's trust
+  without changing which bundle file it reads; the guide's script sets `SSL_CERT_FILE` to the service
+  CA alone instead.
+- **A catalog bump can stop ExternalModel traffic.** From ai-gateway-controller
+  [#151](https://github.com/opendatahub-io/ai-gateway-controller/pull/151), the controller writes new
+  Praxis filter names into the ExternalModel ExtProc's configuration even with
+  `MaasTenantConfig.spec.apiTranslation.enabled` off; an ExtProc image without those filters rejects
+  the pipeline (`NotServing`), and every grid model on an ingress spoke stops answering. Before moving
+  `catalogImage`, check that the nightly's ai-gateway-controller and Praxis ExtProc match
+  (`verify/06-tenant-e2e.sh` "completion 200" fails on a broken one).
+- **A streamed completion without usage isn't counted.** A request with `"stream": true` and no
+  `stream_options.include_usage` gets no `usage` in its response, so Limitador never counts its tokens,
+  whether `RATELIMIT_REPORT_SERVICE_FAILURE_MODE` is `allow` or `deny`. Seen 2026-10-22 on OpenShift AI 3.6
+  nightly (RHCL 1.4.3) with the MaaS simulator sample at 100 tokens a minute: twelve plain requests,
+  then 429; twenty such streams all 200, and plain requests still 200 afterwards. MaaS v0.2.1's release
+  notes list `include_usage` as enforced in the IPP pipeline, but this nightly's payload-processing
+  chain runs only `request_id`.
 
 ## Fixes found along the way
 
@@ -283,6 +312,14 @@ Each is in git with a comment where it applies; the plan's ledger has the detail
   collector already uses port 8890 internally, so metrics are scraped from its exporter on 8889.
 - Setup Jobs that fill a Secret patch it through stdin: `oc apply` keeps a copy of the data in its
   `last-applied-configuration` annotation.
+- Kuadrant fails open by default (kuadrant-operator `internal/wasm/utils.go`): with Limitador
+  unreachable, the gateway passes requests and their tokens go uncounted. Ingress spokes set
+  `RATELIMIT_CHECK_SERVICE_FAILURE_MODE` and `RATELIMIT_REPORT_SERVICE_FAILURE_MODE` to `deny` on the
+  rhcl-operator Subscription, and `AUTH_SERVICE_TIMEOUT` to `2s` (the 200ms default shows as
+  intermittent 500s under load), as the MaaS install guide recommends (`platform-setup.md`). With
+  Limitador unreachable, a completion then gets 500 instead of reaching the model. Kuadrant's
+  token-rate-limiting guide warns that report `deny` can block a response whose usage it can't read;
+  on RHCL 1.4.3 with Limitador up, a stream without usage still answered 200 (see Known gaps).
 
 ## Known overrides of operator-owned objects
 
