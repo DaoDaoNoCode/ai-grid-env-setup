@@ -50,7 +50,7 @@ spec:
       destination: { server: '{{`{{.server}}`}}', namespace: {{ .Values.gridNs }} }
       syncPolicy:
         automated: { selfHeal: true }
-        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        retry: { limit: -1, refresh: true, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
         syncOptions: [CreateNamespace=true]
 {{- /* An ApplicationSet expression for the cluster's value in a map of site to value, else the
        default; with an empty map, the default alone. Argument: (list map default). */ -}}

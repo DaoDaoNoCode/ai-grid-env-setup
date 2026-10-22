@@ -18,5 +18,5 @@ spec:
         - { group: limitador.kuadrant.io, kind: Limitador, name: limitador, namespace: kuadrant-system, jsonPointers: [/spec/limits, /spec/metricLabelsDefault] }
       syncPolicy:
         automated: { selfHeal: true, prune: true }
-        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        retry: { limit: -1, refresh: true, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
         syncOptions: [ServerSideApply=true, RespectIgnoreDifferences=true, SkipDryRunOnMissingResource=true]

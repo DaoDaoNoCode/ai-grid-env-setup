@@ -55,5 +55,5 @@ spec:
       destination: { server: '{{`{{.server}}`}}', namespace: {{ .Values.gridNs }} }
       syncPolicy:
         automated: { selfHeal: true }
-        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        retry: { limit: -1, refresh: true, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
         syncOptions: [CreateNamespace=true]

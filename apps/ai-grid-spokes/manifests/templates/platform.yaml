@@ -37,5 +37,5 @@ spec:
         automated: { prune: true, selfHeal: true }
         # Unlimited: a spoke waits on its pull secret and node rollout (up to ~30 min) before the
         # catalog serves; a finite limit would leave the app stopped at "failed previous sync attempt".
-        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        retry: { limit: -1, refresh: true, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
         syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true, RespectIgnoreDifferences=true]
