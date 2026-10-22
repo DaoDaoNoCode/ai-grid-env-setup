@@ -90,7 +90,7 @@ kc_flow=$(kget "ai-grid/authentication/flows/ai-grid%20first%20broker%20login/ex
 kc_names=$(for i in org1-idp org2-idp; do kget ai-grid/identity-provider/instances/$i/mappers; done \
   | jq -sc '[.[][] | select(.identityProviderMapper == "oidc-username-idp-mapper") | .config.template]')
 kc_org1=$(kget "ai-grid/organizations?search=org1&exact=true" | jq -r '.[0].id // ""')
-kc_email=$(for r in org1-idp org2-idp; do kget $r/users/profile; done \
+kc_email=$(for r in org1-idp org2-idp ai-grid; do kget $r/users/profile; done \
   | jq -sc '[.[] | .attributes[] | select(.name == "email") | .permissions.edit]')
 unset kt
 gov_org1=$(yq 'select(.kind == "MaaSSubscription") | .spec.owner.groups[0].name' spokes/tenant/governance.yaml | cut -d: -f1)
@@ -103,8 +103,8 @@ uat "broker: first login only creates and onboards" "flow ai-grid first broker l
   bash -c 'jq -e "map({providerId, requirement}) == [{providerId: \"idp-create-user-if-unique\", requirement: \"REQUIRED\"}, {providerId: \"idp-add-organization-member\", requirement: \"REQUIRED\"}]" <<<"$kc_flow"'
 uat "broker: usernames from the provider's subject" "a username mapper's template isn't \${ALIAS}.\${CLAIM.sub} (the import's placeholder handling, or an edit)" \
   bash -c 'jq -e ". == [\"\${ALIAS}.\${CLAIM.sub}\", \"\${ALIAS}.\${CLAIM.sub}\"]" <<<"$kc_names"'
-uat "tenant realms: email is admin-only" "bootstrap/35-keycloak.sh didn't set the tenant realms' user profile" \
-  bash -c 'jq -e ". == [[\"admin\"], [\"admin\"]]" <<<"$kc_email"'
+uat "realms: email is admin-only" "bootstrap/35-keycloak.sh didn't set the user profile of org1-idp, org2-idp or ai-grid" \
+  bash -c 'jq -e ". == [[\"admin\"], [\"admin\"], [\"admin\"]]" <<<"$kc_email"'
 for r in org1-idp org2-idp; do
   uat "tenant realm $r answers" "KeycloakRealmImport $r not Done: Secret ai-grid-tenant-idps missing when it ran?" \
     curl -fsS -o /dev/null "https://$kchost/realms/$r/.well-known/openid-configuration"

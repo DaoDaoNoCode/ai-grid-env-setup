@@ -48,9 +48,10 @@ api "$base" | jq '.bruteForceProtected = true | .permanentLockout = false | .fai
 # The realm import doesn't apply a user profile, and the default profile drops unknown
 # attributes: let admins set unmanaged ones such as maas_orgs (feeds the MaaS organization claim).
 api "$base/users/profile" | jq '.unmanagedAttributePolicy = "ADMIN_EDIT"' | api -X PUT "$base/users/profile" -d @- >/dev/null
-# The tenant realms: only an admin edits a user's email, which the broker copies in on every sign-in
-# (a realm import can't set the user profile).
-for r in org1-idp org2-idp; do
+# Only an admin edits a user's email (a realm import can't set the user profile). In the tenant realms the
+# broker copies it in on every sign-in; in the broker realm a local user who set another organization's
+# address would block that person's first brokered sign-in (no account linking, so a duplicate email fails).
+for r in org1-idp org2-idp ai-grid; do
   api "https://$kchost/admin/realms/$r/users/profile" | jq '(.attributes[] | select(.name == "email") | .permissions.edit) = ["admin"]' \
     | api -X PUT "https://$kchost/admin/realms/$r/users/profile" -d @- >/dev/null
 done
