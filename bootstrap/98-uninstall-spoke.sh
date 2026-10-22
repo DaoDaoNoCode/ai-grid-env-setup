@@ -14,11 +14,18 @@
 # It keeps what other layers own or what would reboot nodes: the hub's services and its grid site
 # identity (namespace grid stays on local-cluster), the node pull secret and image mirror,
 # cert-manager, and CRDs. It stops and names the blocker if something hangs.
+# KEEP_PREREQS=1 removes only the AI Grid layer from a remote spoke and keeps what a cluster brings as
+# prerequisites: the cross-cluster network (Submariner stays, through label ai-grid/network), the GPU
+# node, NFD and the GPU operator (never removed), the nightly catalog, and the site's grid identity and
+# its provider's exported Service, so the next Add comes back at the same Globalnet address with the
+# same certificate and its pinned digest still matches.
 source "$(dirname "$0")/lib.sh"
 s=${1:?usage: CONFIRM=<spoke> bash bootstrap/98-uninstall-spoke.sh <spoke>}
 if [[ -z ${CONFIRM:-} && -t 0 ]]; then
   read -r -p "This deletes OpenShift AI, MaaS and the grid from $s. Type the spoke name to confirm: " CONFIRM
 fi
+keep=${KEEP_PREREQS:-}; [[ $keep == 1 ]] || keep=
+[[ -n $keep && $s == local-cluster ]] && die "KEEP_PREREQS is for a remote spoke; local-cluster keeps its network anyway"
 [[ ${CONFIRM:-} == "$s" ]] || die "this deletes OpenShift AI, MaaS and the grid from $s; confirm with: make spoke-uninstall SPOKE=$s CONFIRM=$s"
 # Kinds gone() is called with whose CRD may never have arrived, on a spoke whose install stopped before
 # KServe or Kuadrant: nothing of that kind exists. Uninstalling keeps CRDs, so a rerun still has them.
@@ -84,6 +91,7 @@ del_app() { # <app> [kind...]: delete what that app deployed, optionally only th
 # (label ai-grid/uninstalling, which Placement ai-grid-network also selects) until the MaaS objects are
 # gone, since their cleanup revokes API keys in the hub's maas-db through it. A run that stops keeps
 # the label, so a rerun still has the route; step 4 removes it.
+[[ -n $keep ]] && kc $HOST label managedcluster $s "$LABEL_NETWORK=true" --overwrite >/dev/null
 if [[ $s != local-cluster ]]; then
   kc $HOST label managedcluster $s "$LABEL_UNINSTALLING=true" --overwrite >/dev/null
   trap 'rc=$?; ((rc == 0)) || log "$s keeps $LABEL_UNINSTALLING=true, and with it its route to the hub: rerun make spoke-uninstall SPOKE=$s to finish, or remove it on the hub with oc label managedcluster $s $LABEL_UNINSTALLING-"' EXIT
@@ -101,7 +109,12 @@ del_app models LLMInferenceService; gone 300 llminferenceservice facebook-opt-12
 del_app models
 
 log "the grid's objects (namespace $GRID_NS and the hub site's identity stay)"
-del_app grid-consumer; del_app grid-provider-export; del_app grid-provider
+if [[ -n $keep ]]; then
+  # The exported Service holds the site's Globalnet address: keep it and its ServiceExport.
+  del_app grid-consumer; del_app grid-provider Deployment ConfigMap; kc $s delete service grid-provider -n $GRID_NS --ignore-not-found >/dev/null
+else
+  del_app grid-consumer; del_app grid-provider-export; del_app grid-provider
+fi
 del_app grid-operator InferenceProvider GridSite GridNetwork AgentToolProvider
 for k in inferenceproviders gridsites gridnetworks; do
   for o in $(kc $s get $k.grid.praxis.fast -o name 2>/dev/null); do gone 120 "$o"; done
@@ -148,7 +161,11 @@ objs=$(names maastenantconfigs.maas.opendatahub.io models-as-a-service)
 for o in $objs; do gone 300 "$o" -n models-as-a-service; done
 
 # 4. The MaaS cleanup is done: a remote spoke leaves the cross-cluster network.
-if [[ $s != local-cluster ]]; then
+if [[ -n $keep ]]; then
+  log "staying on the cross-cluster network ($LABEL_NETWORK)"
+  kc $HOST label managedcluster $s "$LABEL_UNINSTALLING-" >/dev/null
+  trap - EXIT
+elif [[ $s != local-cluster ]]; then
   log "leaving the cross-cluster network (Submariner's add-on removes its agent from $s)"
   kc $HOST label managedcluster $s "$LABEL_UNINSTALLING-" >/dev/null
   trap - EXIT
@@ -179,7 +196,7 @@ kc $s delete dscinitialization --all --ignore-not-found --wait=false; for o in $
 del_app platform Gateway; del_app platform GatewayClass; del_app platform Kuadrant
 gone 300 kuadrant kuadrant -n kuadrant-system
 
-log "operators and the nightly catalog"
+if [[ -n $keep ]]; then log "operators (the nightly catalog stays)"; else log "operators and the nightly catalog"; fi
 for ns in redhat-ods-operator kuadrant-system; do
   kc $s delete subscriptions.operators.coreos.com --all -n $ns --ignore-not-found
   # Only CSVs installed here, not copies of cluster-wide operators (Argo CD, CloudNativePG).
@@ -187,7 +204,7 @@ for ns in redhat-ods-operator kuadrant-system; do
     kc $s delete csv $c -n $ns --ignore-not-found
   done
 done
-kc $s delete catalogsource rhoai-catalog-dev -n openshift-marketplace --ignore-not-found
+[[ -n $keep ]] || kc $s delete catalogsource rhoai-catalog-dev -n openshift-marketplace --ignore-not-found
 
 log "namespaces"
 nss="redhat-ods-applications redhat-ods-monitoring redhat-ods-operator redhat-ai-gateway-infra models-as-a-service kuadrant-system aigrid-models aigrid-portal-auth ai-tenants"
