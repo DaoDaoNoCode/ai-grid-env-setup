@@ -142,9 +142,13 @@ log "OpenShift AI and MaaS"
 # the DSC removes those controllers and leaves the objects (and their namespaces) stuck.
 del_app tenant
 # ExternalModel and ExternalProvider are inference.opendatahub.io; the rest are maas.opendatahub.io.
-# A failed lookup stops here rather than skip these and strand them on their finalizers.
-objs=$(kc $s get externalmodels.inference.opendatahub.io,externalproviders.inference.opendatahub.io,maassubscriptions.maas.opendatahub.io,maasauthpolicies.maas.opendatahub.io,maasmodelrefs.maas.opendatahub.io -n models-as-a-service -o name) \
-  || die "can't list the MaaS objects in models-as-a-service on $s"
+# A failed lookup stops here rather than skip these and strand them on their finalizers. A kind whose
+# CRD never arrived (an inference spoke has no MaaS) has none.
+objs=""
+for r in externalmodels.inference.opendatahub.io externalproviders.inference.opendatahub.io maassubscriptions.maas.opendatahub.io \
+  maasauthpolicies.maas.opendatahub.io maasmodelrefs.maas.opendatahub.io; do
+  objs+=" $(names $r models-as-a-service)" || die "can't list $r in models-as-a-service on $s"
+done
 for o in $objs; do gone 300 "$o" -n models-as-a-service; done
 # The AITenant goes first, while the spoke still reaches the hub's maas-db: its cleanup revokes the
 # tenant's API keys, then deletes its MaaSTenantConfig, whose cleanup needs the AITenant to resolve.
