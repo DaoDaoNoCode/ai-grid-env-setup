@@ -4,8 +4,8 @@
 # Imports it into ACM, makes sure its invite and models directory exist in the working tree, and adds
 # its portal callback to maas-cli. The invite lives in git: at a terminal it shows the change and asks
 # before committing and pushing those two paths (hack/spoke-commit.sh); otherwise it prints the command.
-# 36-portal-clients.sh sets the redirect list from SPOKES, so the list is every remote spoke with an
-# invite in git, this one, and local-cluster while the hub is a grid member.
+# 36-portal-clients.sh sets the redirect list for every spoke invited in git, this one included, and
+# local-cluster while it's a grid member, less inference spokes (portal_spokes in lib.sh).
 spoke=${1:?usage: 46-spoke-join.sh <spoke>}
 source "$(dirname "$0")/lib.sh"
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -32,8 +32,7 @@ if [[ -d $dir ]]; then log "$dir exists"; else
   mkdir -p "$dir"; cp "$root/spokes/clusters/site-a/models/kustomization.yaml" "$dir/"; log "created $dir (the site-a pattern)"
 fi
 
-all=$(yq ".grid-enrollment.invites | keys | .[]" "$values" | tr "\n" " ")
-[[ $(kc $HOST get managedcluster local-cluster -o json | jq -r --arg l "$LABEL_ENABLED" '.metadata.labels[$l] // ""') == true ]] && all="local-cluster $all"
-SPOKES=$all bash "$root/bootstrap/36-portal-clients.sh"
+# SPOKES names only this spoke, so the hub's membership alone decides local-cluster's callback.
+SPOKES=$spoke bash "$root/bootstrap/36-portal-clients.sh"
 
 bash "$root/hack/spoke-commit.sh" "$spoke" --ask

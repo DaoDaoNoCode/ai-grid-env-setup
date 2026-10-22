@@ -2,12 +2,12 @@
 # MaaS accepts tokens from one client per tenant (AITenant oidc.clientId, matched against azp), so the
 # MaaS Portal's sign-in proxy (Policy tenant-portal) signs tenants in with the same public client the
 # CLI uses, maas-cli, through the browser flow with PKCE: no client secret exists to hand out. This
-# script sets maas-cli's redirect URIs to exactly the portal callbacks of SPOKES' ingress and combined
-# spokes. A public client's leftover callback is a risk: its domain can be reused, and a crafted link
-# would then send a tenant's sign-in code there. Tenant logins never touch a cluster's OpenShift login.
-# Its tokens last 1 hour, the portal session's length: the proxy can't hand a refreshed session back to
-# the browser, because Authorino asks it on the browser's behalf. Rerun after adding or removing an
-# ingress spoke (Task 11).
+# script sets maas-cli's redirect URIs to exactly the portal callbacks of portal_spokes (lib.sh): the
+# invited spokes and local-cluster, less inference ones. A public client's leftover callback is a
+# risk: its domain can be reused, and a crafted link would then send a tenant's sign-in code there.
+# Tenant logins never touch a cluster's OpenShift login. Its tokens last 1 hour, the portal session's
+# length: the proxy can't hand a refreshed session back to the browser, because Authorino asks it on the
+# browser's behalf. Rerun after adding or removing an ingress spoke (Task 11).
 source "$(dirname "$0")/lib.sh"
 ns=$KEYCLOAK_NS realm=ai-grid cid=maas-cli
 kchost=$(kc $HOST get configmap ai-grid-hub-info -n ai-grid-policies -o jsonpath='{.data.keycloakHost}')
@@ -21,18 +21,11 @@ tok=$(printf %s "$ap" | curl -fsS -d grant_type=password -d client_id=admin-cli 
 api() { curl -fsS -H @<(printf 'Authorization: Bearer %s\n' "$tok") -H 'Content-Type: application/json' "$@"; }
 base="https://$kchost/admin/realms/$realm"
 uris=()
-for s in $SPOKES; do
-  [[ $(role_of $s) == inference ]] && continue
-  # Its apps domain from its console URL claim on the hub, so no spoke kubeconfig is needed. ACM's
-  # work-manager add-on reports the claim a minute or two after the import.
-  kc $HOST get managedcluster "$s" >/dev/null || die "$s isn't imported into the hub's ACM: run make spoke-join SPOKE=$s (or bootstrap/45-import.sh), or leave it out of SPOKES"
-  for ((i = 0; i < 30; i++)); do
-    domain=$(kc $HOST get managedcluster "$s" -o json | jq -r '.status.clusterClaims[]?
-      | select(.name == "consoleurl.cluster.open-cluster-management.io") | .value
-      | select(startswith("https://console-openshift-console.")) | ltrimstr("https://console-openshift-console.")')
-    [[ -z $domain ]] || break; sleep 10
-  done
-  [[ -n $domain ]] || die "$s: no console URL claim https://console-openshift-console.<apps domain> on its ManagedCluster after 5 min: check its klusterlet add-ons (kc host get managedclusteraddons -n $s)"
+spokes=$(portal_spokes)
+for s in $spokes; do
+  kc $HOST get managedcluster "$s" >/dev/null || die "$s is invited but isn't imported into the hub's ACM: run make spoke-join SPOKE=$s, or remove invites.$s"
+  for ((i = 0; i < 30; i++)); do domain=$(apps_domain "$s"); [[ -z $domain ]] || break; sleep 10; done
+  [[ -n $domain ]] || die "$s: no single console URL claim https://console-openshift-console.<apps domain> on its ManagedCluster after 5 min: check its klusterlet add-ons (kc host get managedclusteraddons -n $s)"
   uris+=("https://maas.$domain/oauth2/callback")
 done
 id=$(api "$base/clients?clientId=$cid" | jq -re '.[0].id') || die "client $cid missing: realm ai-grid not imported (bootstrap/35-keycloak.sh)"
@@ -46,4 +39,4 @@ for old in $(api "$base/clients" | jq -r '.[] | select((.clientId|startswith("oc
 done
 for sname in $(kc $HOST get secret -n ai-grid-policies -o name | grep -E '/(portal-idp-|maas-portal-oidc$)'); do kc $HOST delete -n ai-grid-policies "$sname" >/dev/null; done
 unset tok
-log "client $cid takes the portal callback of ${#uris[@]} ingress spoke(s)"
+log "client $cid takes the portal callback of ${#uris[@]} spoke(s)"
