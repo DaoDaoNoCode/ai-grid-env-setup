@@ -9,12 +9,12 @@ spec:
   # Pinned, not main: the chart includes ClusterRoleBindings that Argo CD applies with cluster-admin, so
   # a change to what runs on the hub is a reviewed commit here. Bump it with the image pins in
   # values.yaml and the refs in manifests/builds.yaml, all to the same commits.
-  # For now: console PR 41's head, where the chart is (the images are still at f2b1ab1, whose pod spec
-  # the chart reproduces, plus an empty MAP_TILE_ATTRIBUTION). When PR 41 merges, all three move to
-  # its merge commit.
+  # Now: console main at 92b765c, the merge of PR 41 (the chart); the console image and the console
+  # build ref are the same commit. The backend stays at 9827991, the backend commit console main's
+  # vendored proto (mock/proto/upstream/COMMIT) names.
   chart:
     repoURL: https://github.com/ai-grid-cloud/ai-grid-provider-console.git
-    targetRevision: b1ae3b237e4d50e58c18f1e96b2d73413590a0dc
+    targetRevision: 92b765c769c6c40d364d982a4213f5dd12d8dc67
     path: charts/ai-grid-provider-console
     releaseName: ai-grid-provider-console
   destination:

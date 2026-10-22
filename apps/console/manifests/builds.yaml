@@ -18,7 +18,7 @@ apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata: { name: ai-grid-provider-console }
 spec:
-  source: { git: { uri: https://github.com/ai-grid-cloud/ai-grid-provider-console.git, ref: f2b1ab137592c36076e864889d022cf482feb0f3 } }
+  source: { git: { uri: https://github.com/ai-grid-cloud/ai-grid-provider-console.git, ref: 92b765c769c6c40d364d982a4213f5dd12d8dc67 } }
   strategy: { dockerStrategy: { dockerfilePath: Dockerfile } }
   output: { to: { kind: ImageStreamTag, name: "ai-grid-provider-console:latest" } }
   resources: { requests: { cpu: "1", memory: 2Gi }, limits: { memory: 6Gi } }

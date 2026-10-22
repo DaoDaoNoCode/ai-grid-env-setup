@@ -26,8 +26,8 @@ images:
     digest: sha256:1a5f6e220362aa2077026bb7e3091c38f80aac861fa060b08045e58e783d5bc5
   console:
     repository: ghcr.io/ai-grid-cloud/ai-grid-provider-console
-    tag: sha-f2b1ab137592c36076e864889d022cf482feb0f3
-    digest: sha256:b911437daed5fc44fafabf9c93906c84382fe35a211f255c3d78b5f7b796a663
+    tag: sha-92b765c769c6c40d364d982a4213f5dd12d8dc67
+    digest: sha256:da32131e761eae9eb8d36edaaab199c5dff0ab07db5de4509a051e3d43821053
   backend:
     repository: ghcr.io/ai-grid-cloud/ai-grid-provider-backend
     tag: sha-9827991a2a6c37d80455f7340a46421be1b2dbcc
