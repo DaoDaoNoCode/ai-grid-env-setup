@@ -1,0 +1,29 @@
+# AWS g6 (L4) and g6e (L40S) nodes: the operator builds the driver in the cluster, one GPU per node
+# in full (no MIG, no vGPU), DCGM exporter on. The chart installs only the operator, so this is the
+# ClusterPolicy it would render from dependencies.nvidiaGPUOperator.config.spec.
+apiVersion: nvidia.com/v1
+kind: ClusterPolicy
+metadata: { name: gpu-cluster-policy }
+spec:
+  operator: { defaultRuntime: crio, runtimeClass: nvidia, use_ocp_driver_toolkit: true }
+  daemonsets:
+    priorityClassName: system-node-critical
+    # The nodes spoke-infra makes carry this taint.
+    tolerations: [{ key: nvidia.com/gpu, operator: Exists, effect: NoSchedule }]
+  driver: { enabled: true, upgradePolicy: { autoUpgrade: false } }
+  toolkit: { enabled: true }
+  devicePlugin: { enabled: true }
+  gfd: { enabled: true }
+  nodeStatusExporter: { enabled: true }
+  validator: {}
+  dcgm: { enabled: true }
+  # The ServiceMonitor is scraped only once the namespace nvidia-gpu-operator carries the label
+  # openshift.io/cluster-monitoring=true (the chart doesn't set it).
+  dcgmExporter: { enabled: true, serviceMonitor: { enabled: true } }
+  mig: { strategy: none }
+  migManager: { enabled: false }
+  vgpuManager: { enabled: false }
+  vgpuDeviceManager: { enabled: false }
+  vfioManager: { enabled: false }
+  sandboxWorkloads: { enabled: false }
+  cdi: { enabled: false }

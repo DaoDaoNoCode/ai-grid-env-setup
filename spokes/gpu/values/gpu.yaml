@@ -1,0 +1,16 @@
+# Node Feature Discovery and the NVIDIA GPU operator, installed by the odh-gitops chart's
+# dependencies and nothing else (app gpu-<spoke>, release rhai-gpu), on inference and combined spokes
+# (apps/ai-grid-spokes/manifests/templates/gpu.yaml); harmless without a GPU node.
+# The chart renders a DataScienceCluster and DSCInitialization whenever skipCrdCheck is true, and those
+# belong to the platform app, so it stays false here: the chart then renders only the namespaces,
+# OperatorGroups and Subscriptions. The NFD and ClusterPolicy CRs come from spokes/gpu/crs.
+skipCrdCheck: false
+operator: { enabled: false }
+dependencies:
+  nfd: { enabled: true }
+  nvidiaGPUOperator: { enabled: true }
+  # Nothing else the chart can install belongs to this app.
+  certManager: { enabled: false }
+  clusterObservability: { enabled: false }
+  tempo: { enabled: false }
+  loki: { enabled: false }
