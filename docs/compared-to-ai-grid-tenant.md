@@ -126,6 +126,20 @@ Built on 2026-10-20 this repository's way and tested on one cluster; `make verif
 | Limitador Redis | `verify/10`, 10 | Ingress spokes only; Redis and Sentinel require a password generated on the spoke, passed without argv; setup Jobs can touch only their own Secrets. |
 | Replicated MaaS database | `verify/11`, 8 | Three instances on the hub, exported through Submariner, SCRAM-only logins with channel binding, and a NetworkPolicy. Remote spokes get the cross-cluster host; read replicas are groundwork because maas-api can't read from a replica yet. |
 
+## Findings from ai-grid-tenant since then
+
+Read from its git history on 2026-10-22 ([PR 16](https://github.com/kahowell/ai-grid-tenant/pull/16),
+commit [8f336f5](https://github.com/kahowell/ai-grid-tenant/commit/8f336f5)); not reproduced here.
+
+- **Don't patch an operator-owned Deployment from ACM.** A Policy that set site environment on the
+  `grid-operator` Deployment that OpenShift AI deploys (DSC `aiGrid` Managed) fought
+  ai-gateway-operator, which reapplies it with server-side apply and forced ownership: about 24
+  rewrites a minute, and the operator never became ready. This is why this repository leaves `aiGrid`
+  unset and installs the grid operator from the grid chart.
+- **An enforcing Policy can keep a namespace in `Terminating`.** If a Policy still places a spoke and
+  enforces objects in a namespace being deleted, it recreates them and the namespace never finishes.
+  Remove the placement (the spoke's labels) before deleting what the Policy manages.
+
 ## Limits
 
 - Tested on one OpenShift 4.21 cluster that is both hub and spoke. Multiple spokes and a rebuild on
