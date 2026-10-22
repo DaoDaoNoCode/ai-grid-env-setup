@@ -1,0 +1,23 @@
+# Inference spokes: export the provider gateway's fixed-IP Service over Submariner, so ingress spokes'
+# consumers can call it at its Globalnet address. Its own app, so a combined spoke (whose consumer
+# calls its provider in-cluster) exports nothing.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: ai-grid-grid-provider-export, namespace: openshift-gitops }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  generators:
+    {{- include "ai-grid-spokes.generators" (list "inference") | nindent 4 }}
+  template:
+    metadata: { name: 'grid-provider-export-{{`{{.name}}`}}' }
+    spec:
+      project: default
+      source: { repoURL: {{ required "gitRepo" .Values.gitRepo | quote }}, targetRevision: {{ required "gitRef" .Values.gitRef | quote }}, path: spokes/grid/provider-export }
+      destination: { server: '{{`{{.server}}`}}', namespace: {{ .Values.gridNs }} }
+      syncPolicy:
+        automated: { selfHeal: true }
+        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        # ServiceExport's CRD comes with Submariner, which a new spoke may not have yet.
+        syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true]

@@ -24,7 +24,9 @@ spec:
 {{- /* The cross-cluster network (Submariner): the hub's own local-cluster always, since the hub's
        maas-db and grid enrollment are reached through it, plus every grid member, and nothing else:
        a cluster that isn't a member gets no route to them. Predicates are ORed. By name or label
-       only: clusterset default also holds clusters that aren't ours. */ -}}
+       only: clusterset default also holds clusters that aren't ours. ai-grid/uninstalling keeps a
+       spoke on the network while bootstrap/98-uninstall-spoke.sh waits for MaaS's cleanup, which
+       revokes API keys in the hub's maas-db through it. */ -}}
 {{- define "ai-grid.network-placement" -}}
 apiVersion: cluster.open-cluster-management.io/v1beta1
 kind: Placement
@@ -34,6 +36,7 @@ spec:
   predicates:
     - requiredClusterSelector: { labelSelector: { matchLabels: { name: local-cluster } } }
     - requiredClusterSelector: { labelSelector: { matchLabels: { ai-grid/enabled: "true" } } }
+    - requiredClusterSelector: { labelSelector: { matchLabels: { ai-grid/uninstalling: "true" } } }
   tolerations:
     - { key: cluster.open-cluster-management.io/unreachable, operator: Exists }
     - { key: cluster.open-cluster-management.io/unavailable, operator: Exists }

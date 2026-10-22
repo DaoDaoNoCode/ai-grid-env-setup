@@ -16,6 +16,10 @@ dependencies:
   # Monitoring below collects metrics only, so its traces and logs back ends stay out.
   tempo: { enabled: false }
   loki: { enabled: false }
+  # NFD and the GPU operator come from their own app, gpu-<spoke> (spokes/gpu), never from the
+  # platform: `auto` would install them here too once a component needing them is enabled.
+  nfd: { enabled: false }
+  nvidiaGPUOperator: { enabled: false }
 services:
   # OpenShift AI's metrics, for ACM observability on the hub (apps/observability): the hub's
   # ScrapeConfig rhai-metrics scrapes the collector's own Prometheus exporter (port 8889), which

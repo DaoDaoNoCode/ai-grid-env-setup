@@ -16,7 +16,7 @@ uat "pinned digest is this hub's" "apps/ai-grid-spokes/manifests/values.yaml hub
 uat "hub info for spokes"    "bootstrap/50-grid-hub-info.sh not run" \
   bash -c "kc $h get configmap ai-grid-hub-info -n ai-grid-policies -o json | jq -e '.data.hubSiteDigest | length == 64'"
 for s in $SPOKES; do
-  r=$(role_of $s)
+  r=$(site_role $s)
   uat "$s grid operator app" "chart pull from ghcr.io (repository praxis-charts) or a values error" app grid-operator-$s
   uat "$s operator ready"    "no grid-site-identity in $GRID_NS (enrollment, Task 4; invite, Task 11)" \
     kc $s rollout status deploy/grid-operator -n $GRID_NS --timeout=5s
@@ -25,7 +25,40 @@ for s in $SPOKES; do
   uat "$s peer sites Active" "gossip not converged, or the GridSite list failed: kc $s get gridsites" \
     bash -c "l=\$(kc $s get gridsites -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{\"\\n\"}{end}') || exit 1; grep -q '^$s ' <<<\"\$l\" || exit 1; ! grep -v '^$s ' <<<\"\$l\" | grep -v ' Active\$' | grep -q ."
   uat "$s ai-grid-ready"     "DSC not Ready or the grid operator not running on $s (D3)" pol $s ai-grid-ready
+  # Inference sites serve other clusters' consumers through their exported provider; every other
+  # site's consumer calls each one in providerGlobalIPs at its Globalnet address.
+  if [[ $r == inference ]]; then
+    uat "$s provider, no consumer" "the consumer ApplicationSet selects role inference, or the provider's doesn't" \
+      bash -c "app grid-provider-$s && ! kc $h get applications.argoproj.io grid-consumer-$s -n openshift-gitops"
+    ip=$(yq ".providerGlobalIPs[\"$s\"] // \"\"" apps/ai-grid-spokes/manifests/values.yaml)
+    uat "$s provider address committed" "bash bootstrap/50-grid-hub-info.sh prints providerGlobalIPs.$s: commit it in apps/ai-grid-spokes/manifests/values.yaml" \
+      bash -c "[ -n '$ip' ] && [ \"\$(kc $s get globalingressip grid-provider-fixed -n $GRID_NS -o jsonpath='{.status.allocatedIP}')\" = '$ip' ]"
+  fi
+  if [[ $r == ingress ]]; then
+    uat "$s has a remote inference site" "an ingress spoke has no provider of its own: add an inference site and its providerGlobalIPs entry" \
+      bash -c "[ \"\$(yq '.providerGlobalIPs | length' apps/ai-grid-spokes/manifests/values.yaml)\" -gt 0 ]"
+  fi
+  if [[ $r != inference ]]; then
+    for t in $(yq '.providerGlobalIPs | keys | .[]' apps/ai-grid-spokes/manifests/values.yaml); do
+      [[ $t == "$s" ]] && continue
+      ip=$(yq ".providerGlobalIPs[\"$t\"]" apps/ai-grid-spokes/manifests/values.yaml)
+      uat "$s consumer calls $t" "Argo CD app grid-consumer-$s not synced, or providerGlobalIPs.$t missing" \
+        bash -c "kc $s get configmap grid-gateway-config -n $GRID_NS -o jsonpath='{.data.praxis\.yaml}' | grep -qF '\"$ip:8443\"'"
+    done
+  fi
 done
+# The inference split's lists follow the spokes' roles: each providerGlobalIPs key is an inference spoke,
+# and consumerSites (whose digests inference providers pin) is exactly the ingress and combined spokes.
+v=apps/ai-grid-spokes/manifests/values.yaml
+if [[ $(yq '.providerGlobalIPs | length' $v) -gt 0 ]]; then
+  for t in $(yq '.providerGlobalIPs | keys | .[]' $v); do
+    uat "providerGlobalIPs.$t is an inference spoke" "$t isn't in SPOKES with role inference: only inference sites export their provider" \
+      test "$(site_role $t)" = inference
+  done
+  want=$(for s in $SPOKES; do [[ $(site_role $s) != inference ]] && echo $s; done | sort | xargs)
+  uat "consumerSites are the ingress and combined spokes" "set consumerSites in $v to: $want (inference providers pin exactly these sites)" \
+    test "$(yq '.consumerSites[]' $v | sort | xargs)" = "$want"
+fi
 # Remote sites enroll at enrollHost; its serving certificate must name it. The bootstrap that
 # issues it is a hook, and Argo CD skips hooks when nothing else changed: after changing
 # serving.extraDnsNames, sync grid-enrollment by hand (runbook).

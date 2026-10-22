@@ -28,7 +28,7 @@ spec:
                 # local-cluster (D8), a remote site's own (siteDigests) elsewhere. A site with no
                 # digest yet pins 64 zeros, which no certificate matches: closed until committed,
                 # whatever the gateway would make of an empty pin.
-                peerTrust: { mode: pin, certDigests: ["{{`{{ if eq .name "local-cluster" }}`}}{{ required "hubSiteDigest" .Values.hubSiteDigest }}{{`{{ else }}{{ index (dict`}}{{ range $k, $v := .Values.siteDigests }} "{{ $k }}" "{{ $v }}"{{ end }}{{`) .name | default "`}}{{ repeat 64 "0" }}{{`" }}{{ end }}`}}"] }
+                peerTrust: { mode: pin, certDigests: ["{{`{{ if eq .name "local-cluster" }}`}}{{ required "hubSiteDigest" .Values.hubSiteDigest }}{{`{{ else }}{{ index (dict`}}{{ range $k, $v := .Values.siteDigests }} "{{ $k }}" "{{ $v }}"{{ end }}{{`) .name | default "`}}{{ repeat 64 "0" }}{{`" }}{{ end }}`}}"{{ include "ai-grid-spokes.callerDigests" . }}] }
                 backends:
                   local:
                     endpoint: "{{ .Values.modelBackendIP }}:8000"
@@ -47,3 +47,13 @@ spec:
         automated: { selfHeal: true }
         retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
         syncOptions: [CreateNamespace=true]
+{{- /* An inference site in providerGlobalIPs is called by the consumers of the sites in consumerSites,
+       so its provider pins exactly those, as more list items, and no other site: anyone holding
+       another site's identity could otherwise call the model past MaaS. local-cluster presents the
+       hub site's certificate; a consumer site not yet in siteDigests pins 64 zeros. Nothing when
+       providerGlobalIPs is empty. */ -}}
+{{- define "ai-grid-spokes.callerDigests" -}}
+{{- range $site, $_ := .Values.providerGlobalIPs }}{{`{{ if eq .name "`}}{{ $site }}{{`" }}`}}
+{{- range $c := $.Values.consumerSites }}{{ if ne $c $site }}, "{{ if eq $c "local-cluster" }}{{ $.Values.hubSiteDigest }}{{ else }}{{ get $.Values.siteDigests $c | default (repeat 64 "0") }}{{ end }}"{{ end }}{{ end }}{{`{{ end }}`}}
+{{- end }}
+{{- end }}

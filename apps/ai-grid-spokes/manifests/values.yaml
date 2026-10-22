@@ -21,9 +21,22 @@ hubSiteDigest: "e11b9e876791edb1062b1fe34080ecfbcc75b52e4c8fe2639701fe36088ea5b9
 # refuses every caller.
 siteDigests:
   site-a: "0cbd93eaf3bf393c2293412f42fe0ed2f2f48d75d91408ddeefee9f689507d25"
+# Inference sites that other clusters' consumers call: the Globalnet address of each one's exported
+# provider Service (spokes/grid/provider-export). A literal IP, because the gateways refuse host
+# names. It changes on every build: bootstrap/50-grid-hub-info.sh prints it once the site is added;
+# commit it here. Empty: no site is called from another; a combined site's consumer calls only its own
+# provider, and an ingress spoke can't render a consumer at all (it has no backend), so add an
+# inference site before an ingress one.
+providerGlobalIPs: {}
+#  site-b: "242.x.y.z"
+# The sites whose consumers call those inference sites: every ingress and combined spoke, and
+# local-cluster while the hub is one. Each inference provider pins exactly these sites' digests
+# (verify/05 checks the list against the spokes' roles).
+consumerSites: []
+#  - site-a
 # Remote spokes enroll with the hub's enrollment over Submariner (apps/grid-enrollment).
 enrollHost: local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local:8443
-# A remote site's gossip Service. ClusterIP while it's the only remote site: it has no peer, and a
-# LoadBalancer would hold the operator until AWS gives it an address. LoadBalancer (an NLB, from
-# platform: aws) once a second remote site joins.
-remoteSwimServiceType: ClusterIP
+# A remote site's gossip Service: LoadBalancer (an NLB, from platform: aws), so remote sites, such as
+# an inference site and the ingress site it serves, gossip with each other. With a single remote site
+# ClusterIP also works and skips the NLB, which holds the operator until AWS gives it an address.
+remoteSwimServiceType: LoadBalancer

@@ -1,0 +1,31 @@
+# Every cluster this repo's scripts reach, in one file. To start:
+#   cp clusters.example.yaml clusters.local.yaml    # git-ignored; fill in every <placeholder>
+#   make login                                      # a kubeconfig per cluster in .kube-cache/
+# Rerun make login when a token expires (a day). Roles and locations aren't set here: they come from
+# the ManagedCluster labels the console sets. Quote a password that has YAML characters (: # ' ").
+hub:
+  # The hub's API URL: https://api.<cluster-domain>:6443 (oc whoami --show-server, or the console's
+  # Copy login command).
+  server: https://api.<hub-cluster-domain>:6443
+  # A user with cluster-admin on the hub, for its OAuth login (for example kubeadmin).
+  user: <hub-user>
+  # That user's password.
+  password: "<hub-password>"
+git:
+  # The repository Argo CD reads the hub and spokes from (GIT_REPO); your fork to try a branch.
+  repo: https://github.com/<you>/ai-grid-env-setup.git
+  # The branch Argo CD reads (GIT_REF).
+  ref: main
+spokes:
+  # Each key is the spoke's ManagedCluster name, the SPOKE= in make spoke-infra and make spoke-join.
+  site-a:
+    # The spoke's API URL: https://api.<cluster-domain>:6443.
+    server: https://api.<site-a-cluster-domain>:6443
+    # A user with cluster-admin on the spoke.
+    user: <site-a-user>
+    # That user's password.
+    password: "<site-a-password>"
+  site-b:
+    server: https://api.<site-b-cluster-domain>:6443
+    user: <site-b-user>
+    password: "<site-b-password>"

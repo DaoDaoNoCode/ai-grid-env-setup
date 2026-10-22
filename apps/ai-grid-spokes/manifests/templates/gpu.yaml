@@ -1,0 +1,39 @@
+{{- /* NFD and the NVIDIA GPU operator on the spokes that serve models: ai-grid/enabled with role
+       inference or combined (Chris, 2026-10-21); ingress spokes get nothing. On a spoke with no NVIDIA
+       GPU the operator runs no driver, device-plugin or DCGM pods (its DaemonSets want 0) and its
+       ClusterPolicy reads ready with condition NoGPUNodes; NFD runs one worker pod per node. Remove
+       drops the app with the other spoke apps and keeps the operators installed
+       (preserveResourcesOnDeletion). Its own release (rhai-gpu), values and CRs: nothing it renders
+       overlaps platform-<spoke>. */ -}}
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: ai-grid-gpu, namespace: openshift-gitops }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy: { preserveResourcesOnDeletion: true }
+  generators:
+    {{- include "ai-grid-spokes.generators" (list "inference" "combined") | nindent 4 }}
+  template:
+    metadata: { name: 'gpu-{{`{{.name}}`}}' }
+    spec:
+      project: default
+      sources:
+        - repoURL: https://github.com/opendatahub-io/odh-gitops.git
+          targetRevision: "{{ .Values.odhGitopsRef }}"
+          path: charts/rhai-on-openshift-chart
+          helm:
+            releaseName: rhai-gpu
+            valueFiles: [$values/spokes/gpu/values/gpu.yaml]
+        - repoURL: {{ required "gitRepo" .Values.gitRepo }}
+          targetRevision: {{ required "gitRef" .Values.gitRef }}
+          ref: values
+        # The NFD and ClusterPolicy CRs, which wait for the operators' CRDs (retry below).
+        - repoURL: {{ required "gitRepo" .Values.gitRepo }}
+          targetRevision: {{ required "gitRef" .Values.gitRef }}
+          path: spokes/gpu/crs
+      destination: { server: '{{`{{.server}}`}}' }
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        retry: { limit: -1, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+        syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true]

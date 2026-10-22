@@ -17,7 +17,7 @@ podman login from a read-only robot account, since the login is copied to every 
 (details and timings in [the runbook](docs/runbook.md#build-rebuild-and-tear-down)):
 
 ```bash
-export HOST_KUBECONFIG=<path to the hub's kubeconfig>
+export HOST_KUBECONFIG=<path to the hub's kubeconfig>   # or: cp clusters.example.yaml clusters.local.yaml, fill it in, make login
 bash hack/quay-env.sh        # once per machine: copies the quay.io/rhoai login into the git-ignored .env
 make hub                     # Argo CD builds the hub from this repository's main branch
 # commit the hubSiteDigest that bootstrap/50-grid-hub-info.sh prints (a new hub has a new grid CA)
