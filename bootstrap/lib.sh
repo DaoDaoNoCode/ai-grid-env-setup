@@ -27,6 +27,24 @@ role_of() { kv "$SPOKE_ROLES" "$1"; }
 # A spoke's role as the console set it (its ManagedCluster's ai-grid/role on the hub), else SPOKE_ROLES.
 site_role() { local r; r=$(kc host get managedcluster "$1" -o json 2>/dev/null | jq -r '.metadata.labels["ai-grid/role"] // ""'); echo "${r:-$(role_of "$1")}"; }
 location_of() { kv "$SPOKE_LOCATIONS" "$1"; }
+# The spokes whose MaaS portal signs tenants in through maas-cli: every spoke invited in git, and
+# local-cluster while it's a grid member or listed in SPOKES, less inference spokes (site_role). SPOKES
+# defaults to local-cluster, so make spokes covers the hub before the console's Add; once the hub has
+# left the grid, leave it out of SPOKES (46-spoke-join.sh does).
+portal_spokes() {
+  local s all member
+  all=$(yq '.grid-enrollment.invites | keys | .[]' "$REPO_ROOT/apps/grid-enrollment/manifests/values.yaml") || return
+  member=$(kc host get managedcluster local-cluster -o json | jq -r --arg l "$LABEL_ENABLED" '.metadata.labels[$l] // ""') || return
+  [[ $member != true && " $SPOKES " != *" local-cluster "* ]] || all="local-cluster $all"
+  for s in $all; do [[ $(site_role "$s") == inference ]] || echo "$s"; done
+}
+# A spoke's apps domain from its one console URL claim on the hub (https://console-openshift-console.<apps
+# domain>, a bare host name), so no spoke kubeconfig is needed. Empty until ACM's work-manager add-on
+# reports the claim, a minute or two after the import.
+apps_domain() {
+  kc host get managedcluster "$1" -o json | jq -r '[.status.clusterClaims[]? | select(.name == "consoleurl.cluster.open-cluster-management.io") | .value]
+    | select(length == 1 and (.[0] | test("^https://console-openshift-console\\.[A-Za-z0-9.-]+$"))) | .[0] | ltrimstr("https://console-openshift-console.")'
+}
 SITES="" MODEL_SITES=""
 for s in $SPOKES; do
   if [[ $s != local-cluster ]]; then SITES+="$s "; fi
@@ -45,4 +63,4 @@ on_node() {
   kc "$1" debug "node/$n" -q -- chroot /host sh -c "$2"
 }
 # verify scripts call these inside `bash -c`, which only sees exported functions.
-export -f log die kcfg kctx kc hc kv role_of site_role location_of multi_only with_cluster cp_topology on_node
+export -f log die kcfg kctx kc hc kv role_of site_role location_of portal_spokes apps_domain multi_only with_cluster cp_topology on_node
