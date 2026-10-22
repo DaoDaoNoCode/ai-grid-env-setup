@@ -79,11 +79,28 @@ client_gone() { curl -s "https://$kchost/realms/ai-grid/protocol/openid-connect/
 export -f client_gone; export kchost
 uat "no maas-portal client"   "the confidential client from an earlier portal design is left: rerun bootstrap/36-portal-clients.sh" \
   client_gone maas-portal
+# maas-cli is a public client, so it must take exactly the portal callbacks of SPOKES' ingress and
+# combined spokes: a departed spoke's leftover one could receive a tenant's sign-in code once its
+# domain is reused. The apps domains come from the hub's console URL claims, as in 36-portal-clients.sh;
+# reading the client needs Keycloak's admin login, as that script does.
+want=$(for s in $SPOKES; do
+  [[ $(role_of $s) == inference ]] && continue
+  d=$(kc $h get managedcluster "$s" -o json | jq -r '.status.clusterClaims[]? | select(.name == "consoleurl.cluster.open-cluster-management.io")
+    | .value | select(startswith("https://console-openshift-console.")) | ltrimstr("https://console-openshift-console.")')
+  echo "https://maas.$d/oauth2/callback"
+done | jq -Rsc 'split("\n") | map(select(. != "")) | sort')
+redirect_uris() { local au ap tok
+  au=$(kc $h get secret maas-keycloak-initial-admin -n $KEYCLOAK_NS -o jsonpath='{.data.username}' | base64 -d)
+  ap=$(kc $h get secret maas-keycloak-initial-admin -n $KEYCLOAK_NS -o jsonpath='{.data.password}' | base64 -d)
+  tok=$(printf %s "$ap" | curl -fsS -d grant_type=password -d client_id=admin-cli --data-urlencode "username=$au" \
+    --data-urlencode password@- "https://$kchost/realms/master/protocol/openid-connect/token" | jq -r .access_token)
+  curl -fsS -H @<(printf 'Authorization: Bearer %s\n' "$tok") "https://$kchost/admin/realms/ai-grid/clients?clientId=maas-cli" \
+    | jq -c '.[0].redirectUris | sort'; }
+export -f redirect_uris; export want
+uat "maas-cli takes exactly the portal callbacks" "maas-cli's redirect URIs aren't SPOKES' ingress and combined spokes' callbacks: rerun bootstrap/36-portal-clients.sh after adding or removing a spoke (or a spoke's ManagedCluster lacks its console URL claim)" \
+  bash -c '[[ $(redirect_uris) == "$want" ]]'
 for s in $SPOKES; do
   [[ $(role_of $s) == inference ]] && continue
-  uat "portal redirect $s"   "client maas-cli rejects $s's portal callback: rerun bootstrap/36-portal-clients.sh after adding a spoke or a domain change" \
-    bash -c "d=\$(kc $s get ingresses.config cluster -o jsonpath='{.spec.domain}'); \
-      curl -s -o /dev/null -w '%{http_code}' \"https://$kchost/realms/ai-grid/protocol/openid-connect/auth?client_id=maas-cli&response_type=code&scope=openid&code_challenge_method=S256&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&redirect_uri=https%3A%2F%2Fmaas.\$d%2Foauth2%2Fcallback\" | grep -qx 200"
   uat "no login client ocp-$s" "a cluster-login client from the old portal design is left: rerun bootstrap/36-portal-clients.sh" \
     client_gone ocp-$s
 done

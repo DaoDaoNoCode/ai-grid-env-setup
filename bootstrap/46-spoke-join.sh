@@ -34,13 +34,6 @@ fi
 
 all=$(yq ".grid-enrollment.invites | keys | .[]" "$values" | tr "\n" " ")
 [[ $(kc $HOST get managedcluster local-cluster -o json | jq -r --arg l "$LABEL_ENABLED" '.metadata.labels[$l] // ""') == true ]] && all="local-cluster $all"
-# 36-portal-clients.sh reads each spoke's ingress domain through its kubeconfig and stops at a missing
-# one. Leave those spokes out and say so, and have it add to maas-cli's list rather than replace it, so
-# their callbacks stay.
-keep="" missing=""
-for s in $all; do
-  if [[ -f $(kcfg "$s") ]]; then keep+="$s "; else missing=1; log "no kubeconfig for $s at $(kcfg "$s"): its portal callback stays as it is"; fi
-done
-SPOKES=$keep KEEP_OTHER_URIS=$missing bash "$root/bootstrap/36-portal-clients.sh"
+SPOKES=$all bash "$root/bootstrap/36-portal-clients.sh"
 
 bash "$root/hack/spoke-commit.sh" "$spoke" --ask
