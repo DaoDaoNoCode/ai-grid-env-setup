@@ -25,7 +25,7 @@ spec:
     failureFactor: 10
     waitIncrementSeconds: 60
     maxFailureWaitSeconds: 900
-    # Plain names: the broker maps each one it allows to its `<organization id>:<group>` group.
+    # Plain names: the broker maps each one it allows to its own group <group> under the organization's.
     groups:
       - { name: group1 }
     clients:

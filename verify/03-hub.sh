@@ -69,8 +69,8 @@ one() { local f=$1; shift; jq -se "$@" "length == 1 and (.[0] | $f)"; }
 export -f claims one; export h kchost   # bash -c subshells see only exported names
 uat "alice token: org1"      "the maas orgs mapper emits another shape (Step 2's note), or alice isn't an org1 member" \
   bash -c "claims alice | one '.\"https://redhat.com/maas/orgs\" | length == 1 and .[0].organization_name == \"org1\" and (.[0].organization_id | test(\"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$\"))'"
-uat "alice token: groups"    "the groups mapper emits full paths (/<org1 id>:group1) or alice isn't in <org1 id>:group1" \
-  bash -c "claims alice | one '. as \$t | .groups | index(\$t[\"https://redhat.com/maas/orgs\"][0].organization_id + \":group1\")'"
+uat "alice token: groups"    "scope maas's groups mapper doesn't emit maas_groups from the user's groups, or alice isn't in group1 under <org1 id>" \
+  bash -c "claims alice | one '. as \$t | .groups == [\$t[\"https://redhat.com/maas/orgs\"][0].organization_id + \"/group1\"]'"
 # The portal's sign-in proxy can't hand a refreshed session back to the browser (Authorino asks it
 # on the browser's behalf), so a token must last the whole portal session: 1 hour.
 uat "alice token lasts the portal session" "client maas-cli's access.token.lifespan isn't 3600: rerun bootstrap/36-portal-clients.sh" \
@@ -92,9 +92,12 @@ kc_names=$(for i in org1-idp org2-idp; do kget ai-grid/identity-provider/instanc
 kc_org1=$(kget "ai-grid/organizations?search=org1&exact=true" | jq -r '.[0].id // ""')
 kc_email=$(for r in org1-idp org2-idp ai-grid; do kget $r/users/profile; done \
   | jq -sc '[.[] | .attributes[] | select(.name == "email") | .permissions.edit]')
+kc_gm=$(kget "ai-grid/client-scopes/$(kget ai-grid/client-scopes | jq -r '.[] | select(.name == "maas") | .id')/protocol-mappers/models" \
+  | jq -c '[.[] | select(.name == "groups") | {protocolMapper, a: .config["user.attribute"], m: .config.multivalued, g: .config["aggregate.attrs"]}]')
+kc_groups=$(kget "ai-grid/groups?max=1000" | jq -c '[.[].name]')
 unset kt
-gov_org1=$(yq 'select(.kind == "MaaSSubscription") | .spec.owner.groups[0].name' spokes/tenant/governance.yaml | cut -d: -f1)
-export kc_idps kc_flow kc_names kc_org1 kc_email gov_org1
+gov_org1=$(yq 'select(.kind == "MaaSSubscription") | .spec.owner.groups[0].name' spokes/tenant/governance.yaml | cut -d/ -f1)
+export kc_idps kc_flow kc_names kc_org1 kc_email kc_gm kc_groups gov_org1
 uat "broker: realm ai-grid is the broker's" "realm ai-grid predates the broker (the operator never re-imports): docs/runbook.md, Upgrading realm ai-grid to the broker" \
   bash -c '[[ -n $kc_org1 && $kc_org1 == "$gov_org1" ]]'
 uat "broker: providers use the first-login flow" "an identity provider is missing or uses Keycloak's default first broker login (profile form, account linking)" \
@@ -103,6 +106,10 @@ uat "broker: first login only creates and onboards" "flow ai-grid first broker l
   bash -c 'jq -e "map({providerId, requirement}) == [{providerId: \"idp-create-user-if-unique\", requirement: \"REQUIRED\"}, {providerId: \"idp-add-organization-member\", requirement: \"REQUIRED\"}]" <<<"$kc_flow"'
 uat "broker: usernames from the provider's subject" "a username mapper's template isn't \${ALIAS}.\${CLAIM.sub} (the import's placeholder handling, or an edit)" \
   bash -c 'jq -e ". == [\"\${ALIAS}.\${CLAIM.sub}\", \"\${ALIAS}.\${CLAIM.sub}\"]" <<<"$kc_names"'
+uat "broker: groups claim from maas_groups" "scope maas's groups mapper isn't the multivalued, aggregating maas_groups attribute mapper: rerun bootstrap/35-keycloak.sh" \
+  bash -c 'jq -e ". == [{protocolMapper: \"oidc-usermodel-attribute-mapper\", a: \"maas_groups\", m: \"true\", g: \"true\"}]" <<<"$kc_gm"'
+uat "broker: no <org id>:<group> groups left" "a group from the earlier shape is left: rerun bootstrap/35-keycloak.sh" \
+  bash -c 'jq -e "map(select(contains(\":\"))) | length == 0" <<<"$kc_groups"'
 uat "realms: email is admin-only" "bootstrap/35-keycloak.sh didn't set the user profile of org1-idp, org2-idp or ai-grid" \
   bash -c 'jq -e ". == [[\"admin\"], [\"admin\"], [\"admin\"]]" <<<"$kc_email"'
 for r in org1-idp org2-idp; do
@@ -140,7 +147,7 @@ broker_claims() { local idp=$1 u=$2 email=${3:-} j loc code ver chal action hint
 ps=$(portal_spokes)
 for s in $ps; do d=$(apps_domain "$s"); [[ -n $d ]] && { cb="https://maas.$d/oauth2/callback"; break; }; done
 export -f broker_claims; export cb
-brokered="(.preferred_username | startswith(\"org1-idp.\")) and .groups == [\$o + \":group1\"] and .\"https://redhat.com/maas/orgs\"[0].organization_id == \$o"
+brokered="(.preferred_username | startswith(\"org1-idp.\")) and .groups == [\$o + \"/group1\"] and .\"https://redhat.com/maas/orgs\"[0].organization_id == \$o"
 [[ -n ${cb:-} ]] && uat "brokered sign-in: org1-idp alice" "the org1-idp login form, the broker's mappers, or maas-cli's callback for the first ingress spoke" \
   bash -c "broker_claims org1-idp alice | one '$brokered' --arg o $gov_org1"
 [[ -n ${cb:-} ]] && uat "brokered sign-in by email domain: org1" "alice@org1.example.com didn't reach org1-idp: organization org1's domain, or org1-idp's kc.org.domain and redirect-on-email-match config" \

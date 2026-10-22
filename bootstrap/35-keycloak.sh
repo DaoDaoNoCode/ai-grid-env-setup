@@ -45,6 +45,54 @@ fi
 # existing realm too.
 api "$base" | jq '.bruteForceProtected = true | .permanentLockout = false | .failureFactor = 10
   | .waitIncrementSeconds = 60 | .maxFailureWaitSeconds = 900' | api -X PUT "$base" -d @- >/dev/null
+# Groups and the groups claim, as in realm-ai-grid.yaml, for a realm imported before them (the import runs
+# once). Each organization's group <organization id> holds leaf groups that carry maas_groups
+# (`<organization id>/<group>`), which scope maas emits as the groups claim. A leaf group named
+# `<organization id>:<group>` from the earlier shape hands its members to the new one and is deleted.
+realm_yaml="$(dirname "$0")/../apps/keycloak/manifests/realm-ai-grid.yaml"
+[[ -f $realm_yaml ]] || die "$realm_yaml not found"
+# group_id <path>: the group's ID, or nothing.
+group_id() { api "$base/group-by-path/$1" 2>/dev/null | jq -r '.id // empty' || true; }
+while read -r parent; do
+  pid=$(group_id "$parent")
+  [[ -n $pid ]] || { api -X POST "$base/groups" -d "$(jq -nc --arg n "$parent" '{name: $n}')" >/dev/null; pid=$(group_id "$parent"); }
+  [[ -n $pid ]] || die "group $parent not created in realm $realm"
+  while read -r child; do
+    name=$(jq -r .name <<<"$child")
+    cid=$(group_id "$parent/$name")
+    if [[ -z $cid ]]; then
+      api -X POST "$base/groups/$pid/children" -d "$child" >/dev/null; cid=$(group_id "$parent/$name")
+      [[ -n $cid ]] || die "group /$parent/$name not created in realm $realm"
+    else
+      api "$base/groups/$cid" | jq --argjson c "$child" '.attributes = $c.attributes' | api -X PUT "$base/groups/$cid" -d @- >/dev/null
+    fi
+    old=$(api -G "$base/groups" --data-urlencode "search=$parent:$name" -d exact=true \
+      | jq -r --arg n "$parent:$name" '.[] | select(.name == $n) | .id')
+    if [[ -n $old ]]; then
+      for m in $(api "$base/groups/$old/members?max=10000" | jq -r '.[].id'); do api -X PUT "$base/users/$m/groups/$cid" >/dev/null; done
+      api -X DELETE "$base/groups/$old" >/dev/null
+    fi
+  done < <(yq -o=json -I=0 ".spec.realm.groups[] | select(.name == \"$parent\") | .subGroups[]" "$realm_yaml")
+done < <(yq '.spec.realm.groups[].name' "$realm_yaml")
+# Each identity provider mapper as in git (the group mappers name the groups above).
+while read -r m; do
+  alias=$(jq -r .identityProviderAlias <<<"$m"); name=$(jq -r .name <<<"$m")
+  mid=$(api "$base/identity-provider/instances/$alias/mappers" | jq -r --arg n "$name" '.[] | select(.name == $n) | .id')
+  if [[ -n $mid ]]; then
+    jq -c --arg id "$mid" '. + {id: $id}' <<<"$m" | api -X PUT "$base/identity-provider/instances/$alias/mappers/$mid" -d @- >/dev/null
+  else
+    api -X POST "$base/identity-provider/instances/$alias/mappers" -d "$m" >/dev/null
+  fi
+done < <(yq -o=json -I=0 '.spec.realm.identityProviderMappers[]' "$realm_yaml")
+# Scope maas's groups mapper as in git; a mapper's type can't change in place, so replace it.
+sid=$(api "$base/client-scopes" | jq -r '.[] | select(.name == "maas") | .id')
+[[ -n $sid ]] || die "client scope maas not found in realm $realm"
+want_gm=$(yq -o=json -I=0 '.spec.realm.clientScopes[] | select(.name == "maas") | .protocolMappers[] | select(.name == "groups")' "$realm_yaml")
+have_gm=$(api "$base/client-scopes/$sid/protocol-mappers/models" | jq -c '.[] | select(.name == "groups")')
+if [[ -z $have_gm ]] || ! jq -e --argjson w "$want_gm" '. as $h | .protocolMapper == $w.protocolMapper and ($w.config | to_entries | all($h.config[.key] == .value))' <<<"$have_gm" >/dev/null; then
+  [[ -z $have_gm ]] || api -X DELETE "$base/client-scopes/$sid/protocol-mappers/models/$(jq -r .id <<<"$have_gm")" >/dev/null
+  api -X POST "$base/client-scopes/$sid/protocol-mappers/models" -d "$want_gm" >/dev/null
+fi
 # The realm import doesn't apply a user profile, and the default profile drops unknown
 # attributes: let admins set unmanaged ones such as maas_orgs (feeds the MaaS organization claim).
 api "$base/users/profile" | jq '.unmanagedAttributePolicy = "ADMIN_EDIT"' | api -X PUT "$base/users/profile" -d @- >/dev/null
@@ -85,16 +133,16 @@ upsert_user() {
     | kc $HOST patch secret ai-grid-test-users -n $ns --type merge --patch-file /dev/stdin >/dev/null || return 1
   echo "$id"
 }
-# add_group <realm> <user id> <group name>
+# add_group <realm> <user id> <group path>
 add_group() {
   local gid
-  gid=$(api -G "https://$kchost/admin/realms/$1/groups" --data-urlencode "search=$3" -d exact=true | jq -r --arg g "$3" '.[] | select(.name==$g) | .id')
+  gid=$(api "https://$kchost/admin/realms/$1/group-by-path/$3" 2>/dev/null | jq -r '.id // empty' || true)
   [[ -n $gid ]] || die "group $3 not found in realm $1"
   api -X PUT "https://$kchost/admin/realms/$1/users/$2/groups/$gid" >/dev/null
 }
 # Local users of the broker realm, for the CLI and verify (password grant): unmanaged members of their
 # organization, with email addresses outside every organization's domain, so a brokered user never
-# matches one. Group <name> is the realm's `<organization id>:<name>` group; "-" = no group, so in no
+# matches one. Group <name> is the realm's group <name> under group <organization id>; "-" = no group, so in no
 # subscription.
 while read -r u org grp; do
   oid=$(api "$base/organizations?search=$org&exact=true" | jq -re '.[0].id') || die "organization $org not found in realm $realm"   # a UUID, which MaaS requires
@@ -102,7 +150,7 @@ while read -r u org grp; do
     "$(jq -nc --arg org "$org" --arg oid "$oid" '{maas_orgs: [([{organization_id: $oid, organization_name: $org, roles: ["member"]}] | tojson)]}')") \
     || die "user $u in realm $realm not set up"
   api -X POST "$base/organizations/$oid/members" -d "\"$id\"" >/dev/null 2>&1 || true   # 409 when already a member
-  [[ $grp == - ]] || add_group $realm "$id" "$oid:$grp"
+  [[ $grp == - ]] || add_group $realm "$id" "$oid/$grp"
 done <<'USERS'
 alice org1 group1
 dave org1 -
