@@ -3,3 +3,5 @@ out/
 *.token
 .env
 apps/*/manifests/charts/
+/clusters.local.yaml
+/.kube-cache/

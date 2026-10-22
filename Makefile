@@ -1,6 +1,10 @@
 SHELL := /bin/bash
-.PHONY: hub spokes all verify console teardown spoke-gpu spoke-gpu-delete spoke-cpu spoke-cpu-delete spoke-infra spoke-join spoke-commit spoke-uninstall
+.PHONY: login hub spokes all verify console teardown spoke-gpu spoke-gpu-delete spoke-cpu spoke-cpu-delete spoke-infra spoke-join spoke-commit spoke-uninstall
 # Run hack/quay-env.sh once first. Every script is safe to rerun.
+# With clusters.local.yaml (clusters.example.yaml): a kubeconfig per cluster in .kube-cache/; rerun
+# when a token expires (a day). NAMES="host site-a" logs in to those only.
+login:
+	bash hack/cluster-login.sh $(NAMES)
 hub:
 	bash bootstrap/00-gitops.sh
 	bash bootstrap/21-acm-feature-gates.sh
@@ -21,7 +25,7 @@ console:
 	bash bootstrap/60-console.sh
 teardown:
 	bash bootstrap/99-teardown.sh
-# Preparing a remote spoke (kubeconfig $KUBEDIR/<SPOKE>); see the runbook's remote-spoke table.
+# Preparing a remote spoke (kubeconfig $KUBEDIR/<SPOKE>, from make login); see the runbook's remote-spoke table.
 # GPU_INSTANCE_TYPE (g6.xlarge), GPU_REPLICAS, GPU_AZ, CPU_INSTANCE_TYPE, CPU_REPLICAS, DRY_RUN=1 tune them.
 need-spoke = @test -n "$(SPOKE)" || { echo "usage: make $@ SPOKE=<name>"; exit 1; }
 spoke-gpu:

@@ -8,7 +8,7 @@ Recorded by Task 1, Step 5 (read-only, 2026-10-19). Host names stay out of this 
 |---|---|---|---|---|---|---|---|---|---|
 | hub (`local-cluster`) | ACM hub and its own `combined` spoke | demo.redhat.com "OpenShift Container Platform Cluster (Multi-Cloud)", ready 2026-10-18 | 2026-11-27 | Standard (`HighlyAvailable`) | 4.21.36 | AWS `us-east-2` | 3 × `m6a.4xlarge` control plane (schedulable, worker role), 2 × `m5a.4xlarge` workers, zones a/b/c | v1.3.0 | cert-manager 1.20.1, Red Hat build of Keycloak 26.4.16 |
 
-Run every script with `HOST_KUBECONFIG` pointing at the hub's kubeconfig file, set in the shell, never in git.
+Run every script with `HOST_KUBECONFIG` pointing at the hub's kubeconfig file, set in the shell, never in git. Or put each cluster's API URL, user and password in the git-ignored `clusters.local.yaml` (`cp clusters.example.yaml clusters.local.yaml`, fill it in) and run `make login`: every script then reads the kubeconfigs it writes to `.kube-cache/`, and the file's `git` entry sets `GIT_REPO` and `GIT_REF`. Variables set in the shell still win.
 
 ## Access
 
@@ -52,7 +52,8 @@ console and the databases, and no OpenShift AI.
 
 | Step | Command | What happens | Time |
 |---|---|---|---|
-| a | `make spoke-gpu SPOKE=<name>` (optional) | a GPU MachineSet cloned from one of the spoke's workers, against `$KUBEDIR/<name>`: `GPU_INSTANCE_TYPE` (default `g6.xlarge`, NVIDIA L4), 1 replica, the clone's zone (`GPU_AZ` picks another), label `node-role.kubernetes.io/gpu`, taint `nvidia.com/gpu:NoSchedule`; waits for the node, and prints the Machine's own error if AWS refuses it (capacity, unsupported type). `DRY_RUN=1` prints the MachineSet. Remove with `make spoke-gpu-delete SPOKE=<name>`. Ported from rhoai-nightly | 5 to 15 min |
+| 0 | `cp clusters.example.yaml clusters.local.yaml`, add the hub and `spokes.<name>` (API URL, user, password), then `make login` | a kubeconfig per cluster in `.kube-cache/` (`host` for the hub), the API's CA embedded; no `KUBEDIR` symlinks or exports. Rerun when a token expires (a day); `make login NAMES=<name>` for one. Without `clusters.local.yaml` it stops and prints the `cp` | seconds |
+| a | `make spoke-gpu SPOKE=<name>` (optional) | a GPU MachineSet cloned from one of the spoke's workers, against `$KUBEDIR/<name>` (`.kube-cache/<name>` after step 0): `GPU_INSTANCE_TYPE` (default `g6.xlarge`, NVIDIA L4), 1 replica, the clone's zone (`GPU_AZ` picks another), label `node-role.kubernetes.io/gpu`, taint `nvidia.com/gpu:NoSchedule`; waits for the node, and prints the Machine's own error if AWS refuses it (capacity, unsupported type). `DRY_RUN=1` prints the MachineSet. Remove with `make spoke-gpu-delete SPOKE=<name>`. Ported from rhoai-nightly | 5 to 15 min |
 | b | `make spoke-cpu SPOKE=<name>` (optional) | the same for a CPU worker MachineSet (`CPU_INSTANCE_TYPE` `m6a.4xlarge`, `CPU_REPLICAS` 1), when the spoke needs room; `make spoke-cpu-delete` removes it | 5 to 15 min |
 | c | `make spoke-infra SPOKE=<name>` | GPU node (a), plus the CPU worker (b) when `CPU=1`. No mirror or user-workload-monitoring step: ACM Policies deliver those after the Add | – |
 | d | (nothing to run) | an `inference` or `combined` spoke gets Node Feature Discovery and the NVIDIA GPU operator (app `gpu-<name>`) with its other spoke apps when it's added in the console; an `ingress` spoke gets neither. With a GPU node (a) the operator builds the driver and the node offers `nvidia.com/gpu`; without one it runs no driver or device-plugin pods and its ClusterPolicy reads `ready` (condition `NoGPUNodes`). Remove deletes the app with the others and leaves the operators installed | operators a few min, driver build on the node about 10 min |
