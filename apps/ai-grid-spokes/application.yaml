@@ -19,6 +19,7 @@ spec:
     retry:
       limit: 20
       backoff: { duration: 30s, factor: 2, maxDuration: 10m }
+      refresh: true
     syncOptions:
       - CreateNamespace=true
       - SkipDryRunOnMissingResource=true

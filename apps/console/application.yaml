@@ -14,5 +14,6 @@ spec:
     retry:
       limit: -1
       backoff: { duration: 30s, factor: 2, maxDuration: 10m }
+      refresh: true
     syncOptions:
       - CreateNamespace=true
