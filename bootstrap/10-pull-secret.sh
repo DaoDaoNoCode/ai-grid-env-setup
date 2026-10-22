@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"
+set +x   # the quay.io login passes through variables here; xtrace would print it
 # The fallback for D4: the ACM Policy does this unless pullSecretMode is script in apps/ai-grid-policies/manifests/values.yaml.
 [[ $PULL_SECRET_MODE == script ]] || { log "pullSecretMode=$PULL_SECRET_MODE in git: the ACM Policy handles the pull secret; nothing to do"; exit 0; }
 [[ -f "$ENV_FILE" ]] || die "missing $ENV_FILE: run hack/quay-env.sh (Task 2)"

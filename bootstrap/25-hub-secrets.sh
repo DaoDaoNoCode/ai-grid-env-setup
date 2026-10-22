@@ -2,6 +2,7 @@
 # Hub Secrets that can't live in git. rhoai-quay-pull: the deployer's quay login for Policy
 # rhoai-pull-secret (D4). The login goes through a pipe in a subshell, never argv; never printed.
 source "$(dirname "$0")/lib.sh"
+set +x   # the quay.io login passes through variables here; xtrace would print it
 cd "$(dirname "$0")/.."
 until kc $HOST get namespace ai-grid-policies >/dev/null 2>&1; do log "waiting for Argo CD app ai-grid-policies"; sleep 10; done
 [[ -f "$ENV_FILE" ]] || die "missing $ENV_FILE: run hack/quay-env.sh"

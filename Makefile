@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: login hub spokes all verify console teardown spoke-gpu spoke-gpu-delete spoke-cpu spoke-cpu-delete spoke-infra spoke-join spoke-commit spoke-uninstall
+.PHONY: login hub spokes all verify console teardown spoke-gpu spoke-gpu-delete spoke-cpu spoke-cpu-delete spoke-catalog spoke-infra spoke-join spoke-commit spoke-uninstall
 # Run hack/quay-env.sh once first. Every script is safe to rerun.
 # With clusters.local.yaml (clusters.example.yaml): a kubeconfig per cluster in .kube-cache/; rerun
 # when a token expires (a day). NAMES="host site-a" logs in to those only.
@@ -40,11 +40,17 @@ spoke-cpu:
 spoke-cpu-delete:
 	$(need-spoke)
 	bash hack/spoke-machineset.sh cpu delete $(SPOKE)
-# GPU node; add CPU=1 for a CPU worker too. ACM Policies deliver the mirror and monitoring after the Add.
+# The nightly catalog and its pull secret, READY before the Add (hack/spoke-catalog.sh).
+spoke-catalog:
+	$(need-spoke)
+	bash hack/spoke-catalog.sh $(SPOKE)
+# GPU node; add CPU=1 for a CPU worker too; then the nightly catalog. ACM Policies deliver the mirror
+# and monitoring after the Add.
 spoke-infra:
 	$(need-spoke)
 	$(MAKE) spoke-gpu SPOKE=$(SPOKE)
 	$(if $(CPU),$(MAKE) spoke-cpu SPOKE=$(SPOKE))
+	$(MAKE) spoke-catalog SPOKE=$(SPOKE)
 # On the hub: import, invite, models directory, portal callback; then offers to commit and push them.
 spoke-join:
 	$(need-spoke)
