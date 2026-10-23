@@ -124,8 +124,10 @@ probes the advertised one; and that an ingress spoke's operator enrolls and crea
 deletes the root ApplicationSet, then everything the delivery apps `ai-grid-spokes` and
 `ai-grid-policies` created (found by Argo CD's tracking annotation), then those apps. No Application
 has a resources finalizer except a remote spoke's `submariner-<site>` (leaving the network removes
-Submariner from that spoke, as Remove in the console does), every ApplicationSet preserves resources
-on deletion, and ACM Policies don't prune, so OpenShift AI, the grid and the hub services keep
+Submariner from that spoke, as Remove in the console does) and `maas-db-replica-<site>` (the replica
+of the hub's `maas-db` goes with membership; CloudNativePG's operator stays), every other
+ApplicationSet preserves resources on deletion, and the only ACM Policy that prunes is
+`maas-db-replication` (the replica's credentials), so OpenShift AI, the grid and the hub services keep
 running. Not yet run on `aio`.
 
 **Unlabel drill** (Task 8 Step 4, 2026-10-19): removing `ai-grid/enabled` from `local-cluster`
@@ -155,12 +157,30 @@ the hub's services and grid site identity (`grid` stays on `local-cluster`), the
 image mirror (changing them reboots nodes), cert-manager and CRDs. A remote spoke leaves the
 cross-cluster network last (labels `ai-grid/uninstalling` and `ai-grid/network` removed).
 
-`KEEP_PREREQS=1` removes only the AI Grid layer from a remote spoke and keeps what the cluster brings as
+**Joined clusters on the network.** `make spoke-join` labels a remote spoke `ai-grid/network=true`, so
+it stays in Placement `ai-grid-network` without being a grid member: after the join and before the
+Add, and after Remove in the console. Such a cluster keeps what that Placement drives: the Submariner
+add-on, an admin cluster Secret in the hub's Argo CD (GitOpsCluster `ai-grid-spokes`), and namespaces
+`maas-db` and `grid-enrollment` (Policy `clusterset-namespaces`), so it can reach the hub's
+`maas-db-rw` (SCRAM logins only) and grid enrollment. That's what keeps a Removed combined spoke's
+maas-api working. Membership (`ai-grid/enabled`) alone gives a remote ingress or combined spoke the
+`maas-db` replica and its replication credentials: on Remove, Argo CD deletes the replica's Cluster
+(its app's resources finalizer) and ACM deletes the credentials (Policy `maas-db-replication`,
+`pruneObjectBehavior: DeleteAll`). The next Add rebuilds the replica from the primary.
+
+To take a Removed spoke off the network without adding it again (the default uninstall can't, because
+Remove deleted the Applications it reads), remove the label on the hub:
+`oc label managedcluster <spoke> ai-grid/network-`. Argo CD then deletes `submariner-<spoke>` and ACM
+removes Submariner from the spoke. Its software stays; the spoke's MaaS, if any, loses the hub's
+`maas-db`.
+
+`KEEP_PREREQS=1` (or `true`; any other value stops the script) removes only the AI Grid layer from a remote spoke and keeps what the cluster brings as
 prerequisites, so the console's next Add installs only that layer: the spoke stays on Submariner (label
 `ai-grid/network`), and the GPU node, NFD and the GPU operator, the nightly catalog, namespace `grid`
 with the site's identity, and its exported provider Service (its Globalnet address) all stay. The next
 Add comes back at the same Globalnet address with the same certificate, so `siteDigests` and
-`providerGlobalIPs` in git still match; no invite or commit is needed. Use it only to add the same cluster
+`providerGlobalIPs` in git still match; no invite or commit is needed. The `maas-db` replica of an
+ingress or combined spoke doesn't stay: it's deleted, and the next Add rebuilds it. Use it only to add the same cluster
 again: the site stays trusted by the other sites until its digest leaves git. On site-b, 2026-10-22: an
 inference spoke back to Provisioned 4 minutes after the Add, model Ready at 5:21.
 

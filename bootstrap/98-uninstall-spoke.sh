@@ -14,17 +14,23 @@
 # It keeps what other layers own or what would reboot nodes: the hub's services and its grid site
 # identity (namespace grid stays on local-cluster), the node pull secret and image mirror,
 # cert-manager, and CRDs. It stops and names the blocker if something hangs.
-# KEEP_PREREQS=1 removes only the AI Grid layer from a remote spoke and keeps what a cluster brings as
-# prerequisites: the cross-cluster network (Submariner stays, through label ai-grid/network), the GPU
-# node, NFD and the GPU operator (never removed), the nightly catalog, and the site's grid identity and
-# its provider's exported Service, so the next Add comes back at the same Globalnet address with the
-# same certificate and its pinned digest still matches.
+# KEEP_PREREQS=1 (or true) removes only the AI Grid layer from a remote spoke and keeps what a cluster
+# brings as prerequisites: the cross-cluster network (Submariner stays, through label ai-grid/network),
+# the GPU node, NFD and the GPU operator (never removed), the nightly catalog, and the site's grid
+# identity and its provider's exported Service, so the next Add comes back at the same Globalnet address
+# with the same certificate and its pinned digest still matches. The maas-db replica still goes.
 source "$(dirname "$0")/lib.sh"
 s=${1:?usage: CONFIRM=<spoke> bash bootstrap/98-uninstall-spoke.sh <spoke>}
+# Anything but empty, 1 or true stops here: a typo must not run the full uninstall, which takes the spoke
+# off the network and changes its Globalnet address.
+case ${KEEP_PREREQS:-} in
+  '') keep= ;;
+  1|true) keep=1 ;;
+  *) die "KEEP_PREREQS=$KEEP_PREREQS: use 1 or true to keep the spoke's prerequisites, or leave it unset for the full uninstall" ;;
+esac
 if [[ -z ${CONFIRM:-} && -t 0 ]]; then
   read -r -p "This deletes OpenShift AI, MaaS and the grid from $s. Type the spoke name to confirm: " CONFIRM
 fi
-keep=${KEEP_PREREQS:-}; [[ $keep == 1 ]] || keep=
 [[ -n $keep && $s == local-cluster ]] && die "KEEP_PREREQS is for a remote spoke; local-cluster keeps its network anyway"
 [[ ${CONFIRM:-} == "$s" ]] || die "this deletes OpenShift AI, MaaS and the grid from $s; confirm with: make spoke-uninstall SPOKE=$s CONFIRM=$s"
 # Kinds gone() is called with whose CRD may never have arrived, on a spoke whose install stopped before
@@ -169,6 +175,11 @@ if [[ -n $keep ]]; then
   log "staying on the cross-cluster network ($LABEL_NETWORK)"
   kc $HOST label managedcluster $s "$LABEL_UNINSTALLING-" >/dev/null
   trap - EXIT
+  # The maas-db replica goes even though the spoke stays on the network: it's a live copy of the hub's
+  # maas-db, and the next Add rebuilds it from the primary. Its app's resources finalizer normally
+  # deleted it already; this covers an app made before that. Namespace maas-db stays: Policy
+  # clusterset-namespaces keeps it on a networked spoke.
+  del_app maas-db-replica Cluster
 elif [[ $s != local-cluster ]]; then
   log "leaving the cross-cluster network (Submariner's add-on removes its agent from $s)"
   kc $HOST label managedcluster $s "$LABEL_UNINSTALLING-" "$LABEL_NETWORK-" >/dev/null

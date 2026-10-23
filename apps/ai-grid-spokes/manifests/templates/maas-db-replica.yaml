@@ -5,6 +5,15 @@ spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   syncPolicy: { preserveResourcesOnDeletion: true }
+  # The replica is a live copy of the hub's maas-db, tenant API-key data included, so it goes with
+  # membership: the app carries the resources finalizer, and when the spoke leaves Placement
+  # ai-grid-spokes (Remove in the console, or the uninstall) deleting the app deletes the Cluster. A
+  # spoke labelled ai-grid/network stays on Submariner, and would otherwise keep streaming from the
+  # primary. The next Add rebuilds it from the primary (pg_basebackup). CloudNativePG's operator stays
+  # (Delete=false in spokes/maas-db-replica/operator.yaml).
+  templatePatch: |
+    metadata:
+      finalizers: [resources-finalizer.argocd.argoproj.io]
   generators:
     # Remote ingress spokes only: the hub's own local-cluster has the primary.
     - matrix:
