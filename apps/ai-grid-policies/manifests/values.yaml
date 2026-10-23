@@ -1,5 +1,5 @@
 # Nightly OpenShift AI 3.6 catalog, pinned by digest; change it deliberately (and recheck Gateway API kinds).
-catalogImage: quay.io/rhoai/rhoai-fbc-fragment:rhoai-3.6@sha256:70c700e76cb23f13a4ccc1896bfcf37238229c5aa80af7daae7fc8028c7f1d9c
+catalogImage: quay.io/rhoai/rhoai-fbc-fragment:rhoai-3.6@sha256:b7036647011841bb36861514c8f9bca66a9d8790c5b444169903b3940538771e
 # Namespaces whose Placements pick spokes: Policies live in ai-grid-policies; Policy maas-db sits beside its database.
 placementNamespaces: [ai-grid-policies, maas-db]
 # D4: policy merges the quay.io/rhoai login into each spoke's pull secret; script means bootstrap/10-pull-secret.sh did it.

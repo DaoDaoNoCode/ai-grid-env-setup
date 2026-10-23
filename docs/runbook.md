@@ -43,6 +43,28 @@ backend addresses (`modelBackendIP`, `providerIP`) assume the default `172.30.0.
 `make all` is `hub` then `spokes`; it doesn't add any cluster to the grid. Every script is safe to rerun (`make all` on the built hub,
 2026-10-19: no changes, `make verify` ALL PASS).
 
+### Moving spokes to a new nightly
+
+Every nightly build is published as the same version, `rhods-operator.3.6.0`, so changing `catalogImage`
+in `apps/ai-grid-policies/manifests/values.yaml` moves each spoke's catalog but not its operator: the
+Subscription stays `AtLatestKnown` on the old build. Spokes added after the change install the new build.
+On each spoke already running OpenShift AI, after its catalog `rhoai-catalog-dev` is `READY` at the new
+image, delete the CSV and the Subscription together (deleting only the CSV leaves the Subscription
+`UpgradePending` on its old, completed InstallPlan):
+
+```bash
+oc delete csv rhods-operator.3.6.0 -n redhat-ods-operator --wait=false
+oc delete subscriptions.operators.coreos.com rhods-operator -n redhat-ods-operator
+```
+
+The spoke's `platform-<spoke>` Argo CD app recreates the Subscription and OLM installs the new build. The
+DataScienceCluster and everything it deployed stay; the operator then rolls each component, so model
+serving and MaaS restart briefly. On 2026-10-22 (catalog `70c700e` to `b7036647`): the new operator ran 2
+to 5 minutes after the deletes, the DSC was Ready 4 to 7 minutes after them, and `make verify` passed 240
+of 240 on both spokes. Upgrade an inference spoke before the ingress one. Until a spoke's operator is
+replaced, its `platform-<spoke>` app can stay OutOfSync on DSC fields the old CRD doesn't have (here
+`kserve.modelExpress`).
+
 ### A remote spoke, and a hub without OpenShift AI
 
 Built 2026-10-21 on two demo.redhat.com clusters (OpenShift 4.21, AWS, same region, same pod and

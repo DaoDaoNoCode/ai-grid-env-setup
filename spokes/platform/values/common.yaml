@@ -31,3 +31,8 @@ services:
       managementState: Managed
       metrics:
         storage: { size: 20Gi }
+# The grid comes from its own charts (apps/ai-grid-spokes grid-*), not the DSC: the operator OpenShift
+# AI deploys for aiGrid has no enrollment, site name or gateway address settings, so a remote site
+# couldn't join. aiGrid stays unset (no second grid operator or CRDs), and so do the chart's copies.
+grid-enrollment: { enabled: false }
+praxis-gateway: { enabled: false }
