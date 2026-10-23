@@ -171,7 +171,7 @@ if [[ -n $keep ]]; then
   trap - EXIT
 elif [[ $s != local-cluster ]]; then
   log "leaving the cross-cluster network (Submariner's add-on removes its agent from $s)"
-  kc $HOST label managedcluster $s "$LABEL_UNINSTALLING-" >/dev/null
+  kc $HOST label managedcluster $s "$LABEL_UNINSTALLING-" "$LABEL_NETWORK-" >/dev/null
   trap - EXIT
   # Wait for the network Placement to drop the spoke first: while its decision still lists $s, the
   # ApplicationSet recreates submariner-$s, which re-applies the add-on. Once it's dropped, deleting

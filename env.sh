@@ -46,7 +46,7 @@ export GRID_NS=grid                                 # the grid's namespace on ev
 export MODEL_NAME=facebook-opt-125m                 # the fixture model's MaaS ID (spokes/models/opt-125m)
 export LABEL_ENABLED=ai-grid/enabled LABEL_ROLE=ai-grid/role LABEL_LOCATION=location
 export LABEL_UNINSTALLING=ai-grid/uninstalling   # keeps a spoke on the network during 98-uninstall-spoke.sh
-export LABEL_NETWORK=ai-grid/network             # keeps a spoke on the network with no AI Grid (98-uninstall-spoke.sh KEEP_PREREQS=1)
+export LABEL_NETWORK=ai-grid/network             # keeps a spoke on the network with no AI Grid (46-spoke-join.sh sets it)
 # The git source Argo CD builds the hub and spokes from. To try a branch, set both before make hub, e.g.
 # GIT_REPO=https://github.com/<you>/ai-grid-env-setup.git GIT_REF=<branch>, or set git: in clusters.local.yaml.
 export GIT_REPO="${GIT_REPO:-https://github.com/ai-grid-cloud/ai-grid-env-setup.git}" GIT_REF="${GIT_REF:-main}"

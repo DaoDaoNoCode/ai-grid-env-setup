@@ -27,8 +27,9 @@ spec:
        only: clusterset default also holds clusters that aren't ours. ai-grid/uninstalling keeps a
        spoke on the network while bootstrap/98-uninstall-spoke.sh waits for MaaS's cleanup, which
        revokes API keys in the hub's maas-db through it. ai-grid/network
-       keeps a spoke on the network with no AI Grid on it (98-uninstall-spoke.sh KEEP_PREREQS=1): its
-       Submariner is a cluster prerequisite, like its GPU node. */ -}}
+       keeps a spoke on the network with no AI Grid on it: make spoke-join sets it, so Remove in the
+       console doesn't take a spoke off Submariner, and 98-uninstall-spoke.sh removes it unless
+       KEEP_PREREQS=1. Submariner is a cluster prerequisite, like the GPU node. */ -}}
 {{- define "ai-grid.network-placement" -}}
 apiVersion: cluster.open-cluster-management.io/v1beta1
 kind: Placement

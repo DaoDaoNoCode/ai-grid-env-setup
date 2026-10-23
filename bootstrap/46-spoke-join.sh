@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs on the hub: everything a remote spoke needs before the console's Add (Task 11, steps 1 to 3):
 #   bash bootstrap/46-spoke-join.sh <spoke>      (kubeconfig $KUBEDIR/<spoke>)
-# Imports it into ACM, makes sure its invite and models directory exist in the working tree, and adds
+# Imports it into ACM, labels it ai-grid/network (Submariner with the hub), makes sure its invite and models directory exist in the working tree, and adds
 # its portal callback to maas-cli. The invite lives in git: at a terminal it shows the change and asks
 # before committing and pushing those two paths (hack/spoke-commit.sh); otherwise it prints the command.
 # 36-portal-clients.sh sets the redirect list for every spoke invited in git, this one included, and
@@ -13,6 +13,11 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 [[ -f $(kcfg "$spoke") ]] || die "no kubeconfig for $spoke: expected $(kcfg "$spoke")"
 
 SPOKES=$spoke bash "$root/bootstrap/45-import.sh"
+# The cross-cluster network is a cluster prerequisite, like the GPU node: label ai-grid/network puts the
+# spoke on Submariner with the hub now, before the Add, and keeps it there after Remove in the console,
+# which would otherwise drop a combined spoke's MaaS route to the hub's maas-db.
+kc $HOST label managedcluster "$spoke" "$LABEL_NETWORK=true" --overwrite >/dev/null || die "couldn't label $spoke $LABEL_NETWORK=true"
+log "$spoke is on the cross-cluster network ($LABEL_NETWORK=true)"
 
 values=$root/apps/grid-enrollment/manifests/values.yaml
 if [[ $(yq ".grid-enrollment.invites | has(\"$spoke\")" "$values") == true ]]; then
