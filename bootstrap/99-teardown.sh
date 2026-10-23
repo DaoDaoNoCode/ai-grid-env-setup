@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Stops delivery and leaves what it installed: no Application here has a resources finalizer (except
-# a remote spoke's submariner-<site>: that spoke leaves the network, as on Remove), every
-# ApplicationSet preserves resources on deletion, and ACM Policies don't prune what they
-# created. local-cluster's OpenShift AI, the grid and the hub services (ACM, Keycloak, enrollment,
+# a remote spoke's submariner-<site>, so that spoke leaves the network, and maas-db-replica-<site>,
+# so its copy of the hub's maas-db goes), every other ApplicationSet preserves resources on deletion,
+# and ACM Policies don't prune what they created (except maas-db-replication's Secrets). local-cluster's OpenShift AI, the grid and the hub services (ACM, Keycloak, enrollment,
 # maas-db) stay running; demo.redhat.com deletes the clusters themselves.
 source "$(dirname "$0")/lib.sh"
 for s in $SPOKES; do

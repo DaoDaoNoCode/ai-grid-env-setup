@@ -155,7 +155,8 @@ the grid's objects, then the MaaS objects that carry cleanup finalizers while Op
 still run, then OpenShift AI and MaaS, their operators, the nightly catalog and the namespaces. It keeps
 the hub's services and grid site identity (`grid` stays on `local-cluster`), the node pull secret and
 image mirror (changing them reboots nodes), cert-manager and CRDs. A remote spoke leaves the
-cross-cluster network last (labels `ai-grid/uninstalling` and `ai-grid/network` removed).
+cross-cluster network once MaaS's cleanup is done, before OpenShift AI, the operators and the
+namespaces go (labels `ai-grid/uninstalling` and `ai-grid/network` removed).
 
 **Joined clusters on the network.** `make spoke-join` labels a remote spoke `ai-grid/network=true`, so
 it stays in Placement `ai-grid-network` without being a grid member: after the join and before the
@@ -167,6 +168,10 @@ maas-api working. Membership (`ai-grid/enabled`) alone gives a remote ingress or
 `maas-db` replica and its replication credentials: on Remove, Argo CD deletes the replica's Cluster
 (its app's resources finalizer) and ACM deletes the credentials (Policy `maas-db-replication`,
 `pruneObjectBehavior: DeleteAll`). The next Add rebuilds the replica from the primary.
+
+Spokes imported before `make spoke-join` set the label don't have it, and Remove still takes them off
+the network: rerun `make spoke-join SPOKE=<spoke>` (it's idempotent), or label them on the hub with
+`oc label managedcluster <spoke> ai-grid/network=true`, as was done on `site-a` on 2026-10-22.
 
 To take a Removed spoke off the network without adding it again (the default uninstall can't, because
 Remove deleted the Applications it reads), remove the label on the hub:
@@ -263,13 +268,16 @@ model plumbing (the grid-backend Service, NetworkPolicy allow-grid-provider) sta
   replica in `spokes/maas-db-replica` has no NetworkPolicy; and the hub's `maas-db-ingress` admits
   all of Globalnet `242.0.0.0/8`, so any cluster in the set can reach port 5432 (narrow it to the
   ingress spokes' Globalnet CIDRs).
-- **Removing an unreachable spoke can leave its Submariner app stuck deleting.** Remove makes Argo CD
-  delete `submariner-<spoke>`, whose resources finalizer waits for the add-on and SubmarinerConfig to
-  go; ACM's cleanup of them may never finish while the spoke can't be reached. Unstick it on the hub:
+- **Taking an unreachable spoke off the network can leave its Submariner app stuck deleting.** Leaving
+  Placement `ai-grid-network` (the uninstall, removing `ai-grid/network` by hand, or Remove of a spoke
+  without that label) makes Argo CD delete `submariner-<spoke>`, whose resources finalizer waits for
+  the add-on and SubmarinerConfig to go; ACM's cleanup of them may never finish while the spoke can't
+  be reached. Unstick it on the hub:
   `kc host delete managedclusteraddon submariner -n <spoke> --wait=false`, then, if the app still
   hangs, `kc host patch applications.argoproj.io submariner-<spoke> -n openshift-gitops --type json
-  -p '[{"op":"remove","path":"/metadata/finalizers"}]'`. Remove taking a spoke off the network is
-  designed but not yet verified on a cluster.
+  -p '[{"op":"remove","path":"/metadata/finalizers"}]'`. Leaving the network removed Submariner
+  from a reachable spoke on demo1 (site-a, 2026-10-22, Remove without the label); an unreachable one
+  is untested.
 - **GPU operators: what's still unverified.** `spokes/gpu` ran on a g6.xlarge (L4) spoke on 2026-10-21: NFD found the card, the operator built driver 580.105.08, the ClusterPolicy reached `ready`, and the node offered `nvidia.com/gpu: 1`. Not run: g6e (L40S) nodes. The DCGM ServiceMonitor is scraped only with the label `openshift.io/cluster-monitoring=true` on namespace `nvidia-gpu-operator`, which nothing sets.
 - **Metrics have one copy.** S4 runs one replica on one volume; losing the volume loses stored metrics.
 - **The MaaS gateway calls Authorino in plaintext.** The MaaS install guide turns TLS on for

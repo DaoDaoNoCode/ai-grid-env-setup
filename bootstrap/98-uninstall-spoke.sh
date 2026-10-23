@@ -100,7 +100,13 @@ del_app() { # <app> [kind...]: delete what that app deployed, optionally only th
 [[ -n $keep ]] && kc $HOST label managedcluster $s "$LABEL_NETWORK=true" --overwrite >/dev/null
 if [[ $s != local-cluster ]]; then
   kc $HOST label managedcluster $s "$LABEL_UNINSTALLING=true" --overwrite >/dev/null
-  trap 'rc=$?; ((rc == 0)) || log "$s keeps $LABEL_UNINSTALLING=true, and with it its route to the hub: rerun make spoke-uninstall SPOKE=$s to finish, or remove it on the hub with oc label managedcluster $s $LABEL_UNINSTALLING-"' EXIT
+  # The rerun has to match this run: without KEEP_PREREQS a rerun of a keep-mode run deletes what it kept
+  # and takes the spoke off the network. In keep mode, ai-grid/network holds the route either way.
+  if [[ -n $keep ]]; then
+    trap 'rc=$?; ((rc == 0)) || log "$s stays on the network ($LABEL_NETWORK=true) and keeps $LABEL_UNINSTALLING=true: rerun make spoke-uninstall SPOKE=$s KEEP_PREREQS=1 to finish"' EXIT
+  else
+    trap 'rc=$?; ((rc == 0)) || log "$s keeps $LABEL_UNINSTALLING=true, and with it its route to the hub: rerun make spoke-uninstall SPOKE=$s to finish, or remove it on the hub with oc label managedcluster $s $LABEL_UNINSTALLING-"' EXIT
+  fi
   trap 'exit 130' INT TERM   # so Ctrl-C also reports the label
 fi
 kc $HOST label managedcluster $s "$LABEL_ENABLED-" "$LABEL_ROLE-" >/dev/null
@@ -116,7 +122,10 @@ del_app models
 
 log "the grid's objects (namespace $GRID_NS and the hub site's identity stay)"
 if [[ -n $keep ]]; then
-  # The exported Service holds the site's Globalnet address: keep it and its ServiceExport.
+  # The exported Service holds the site's Globalnet address: keep it and its ServiceExport. Only the
+  # provider's Deployment, ConfigMap and Service grid-provider go. Knowingly kept, besides the export:
+  # the provider app's ServiceAccount, RBAC and Secrets, and namespace grid with grid-site-identity;
+  # Argo CD adopts them again on the next Add.
   del_app grid-consumer; del_app grid-provider Deployment ConfigMap; kc $s delete service grid-provider -n $GRID_NS --ignore-not-found >/dev/null
 else
   del_app grid-consumer; del_app grid-provider-export; del_app grid-provider
@@ -186,8 +195,9 @@ elif [[ $s != local-cluster ]]; then
   trap - EXIT
   # Wait for the network Placement to drop the spoke first: while its decision still lists $s, the
   # ApplicationSet recreates submariner-$s, which re-applies the add-on. Once it's dropped, deleting
-  # the app prunes the add-on (its resources finalizer, as on Remove in the console); the deletes
-  # after it are for an app made before that finalizer, and are no-ops otherwise.
+  # the app prunes the add-on (its resources finalizer, as whenever a spoke leaves Placement
+  # ai-grid-network); the deletes after it are for an app made before that finalizer, and are no-ops
+  # otherwise.
   for _ in $(seq 1 24); do
     [[ " $(kc $HOST get placementdecisions -n openshift-gitops \
       -l cluster.open-cluster-management.io/placement=ai-grid-network \
