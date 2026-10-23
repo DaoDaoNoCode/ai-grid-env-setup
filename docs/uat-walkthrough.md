@@ -519,8 +519,10 @@ lacks `preserveResourcesOnDeletion`.
 4. It deletes the `ManagedCluster` of each remote spoke.
 
 It's safe in principle because no Application has a resources finalizer (except a remote spoke's
-`submariner-<site>`, which takes that spoke off the cross-cluster network), every ApplicationSet
-preserves resources on deletion, and ACM Policies don't remove what they created. So OpenShift AI,
+`submariner-<site>`, which takes that spoke off the cross-cluster network, and `maas-db-replica-<site>`,
+which deletes its copy of the hub's `maas-db`), every ApplicationSet preserves resources on deletion,
+and ACM Policies don't remove what they created (except `maas-db-replication`, the replica's
+credentials). So OpenShift AI,
 the grid, and the hub services keep running, no longer managed. Teardown hasn't run on this cluster,
 so that reasoning is untested here. Afterwards, `make all` and Add to AI Grid in the console bring delivery back. Whether to run it is
 your call; don't run it during this walkthrough.

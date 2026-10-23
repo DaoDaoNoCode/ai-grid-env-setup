@@ -31,10 +31,14 @@ spec:
         metadata: { name: maas-db-replication }
         spec:
           severity: high
+          # The credentials go with membership: when Placement ai-grid-ingress-remote drops the spoke
+          # (Remove, or the uninstall), ACM deletes these Secrets, though the spoke may stay on the
+          # network (ai-grid/network). Namespace maas-db isn't listed, so pruning never deletes it:
+          # Policy clusterset-namespaces and the replica's app create it, and the hub's imported
+          # maas-db-rw, which a combined spoke's maas-api uses, lives in it.
+          pruneObjectBehavior: DeleteAll
           # fromSecret returns base64 data, encrypted in transit and decrypted on the spoke.
           object-templates:
-            - complianceType: musthave
-              objectDefinition: { apiVersion: v1, kind: Namespace, metadata: { name: maas-db } }
             - complianceType: mustonlyhave
               objectDefinition:
                 apiVersion: v1

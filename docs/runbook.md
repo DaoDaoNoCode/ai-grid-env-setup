@@ -111,11 +111,11 @@ console and the databases, and no OpenShift AI.
 | b | `make spoke-cpu SPOKE=<name>` (optional) | the same for a CPU worker MachineSet (`CPU_INSTANCE_TYPE` `m6a.4xlarge`, `CPU_REPLICAS` 1), when the spoke needs room; `make spoke-cpu-delete` removes it | 5 to 15 min |
 | c | `make spoke-infra SPOKE=<name>` | GPU node (a), plus the CPU worker (b) when `CPU=1`, then `make spoke-catalog`: the `quay.io/rhoai` auth merged into the spoke's pull secret and the nightly catalog `rhoai-catalog-dev`, READY before the Add, exactly as Policies `rhoai-pull-secret` and `rhoai-nightly-prereqs` write them. A cold catalog is unreachable for about 6 minutes, and OLM fails every Subscription on the cluster meanwhile, so after an Add on a fresh spoke Submariner and the other operators waited about 17 minutes (site-b, 2026-10-22). Skipped without `.env`. No mirror or user-workload-monitoring step: ACM Policies deliver those after the Add | – |
 | d | (nothing to run) | an `inference` or `combined` spoke gets Node Feature Discovery and the NVIDIA GPU operator (app `gpu-<name>`) with its other spoke apps when it's added in the console; an `ingress` spoke gets neither. With a GPU node (a) the operator builds the driver and the node offers `nvidia.com/gpu`; without one it runs no driver or device-plugin pods and its ClusterPolicy reads `ready` (condition `NoGPUNodes`). Remove deletes the app with the others and leaves the operators installed | operators a few min, driver build on the node about 10 min |
-| e | `make spoke-join SPOKE=<name>` (on the hub) | steps 1 to 3 below in one go: import, ensures `invites.<name>` and `spokes/clusters/<name>/models` (created if missing), `36-portal-clients.sh` for every spoke invited in git, plus `local-cluster` while it's a member or in `SPOKES`, less `inference` spokes (their apps domains come from the hub, so other spokes' kubeconfigs aren't needed; any other callback is dropped); then shows the `git diff --stat` of those two paths and the full diff of `values.yaml`, and asks "Commit and push to <GIT_REF>? [y/N]" (stages only them; without a terminal it prints `make spoke-commit SPOKE=<name>`, which commits and pushes them without asking) | about 1 min |
+| e | `make spoke-join SPOKE=<name>` (on the hub) | steps 1 to 3 below in one go: import, label `ai-grid/network=true` (Submariner with the hub from now on, so Remove in the console never takes the spoke off it), ensures `invites.<name>` and `spokes/clusters/<name>/models` (created if missing), `36-portal-clients.sh` for every spoke invited in git, plus `local-cluster` while it's a member or in `SPOKES`, less `inference` spokes (their apps domains come from the hub, so other spokes' kubeconfigs aren't needed; any other callback is dropped); then shows the `git diff --stat` of those two paths and the full diff of `values.yaml`, and asks "Commit and push to <GIT_REF>? [y/N]" (stages only them; without a terminal it prints `make spoke-commit SPOKE=<name>`, which commits and pushes them without asking) | about 1 min |
 | 1 | `SPOKES="local-cluster site-a" bash bootstrap/45-import.sh` (kubeconfig at `$KUBEDIR/site-a`) | ManagedCluster `site-a`, no `ai-grid/*` labels: importing gives no grid membership and no network yet | joined 13 s |
 | 2 | add `invites.<site>` to `apps/grid-enrollment/manifests/values.yaml` and `spokes/clusters/<site>/models`, commit | the invite Job mints a 24 h token; ACM delivers it to the site | about 1 min |
 | 3 | `bash bootstrap/36-portal-clients.sh` | `maas-cli` takes the portal callback of every invited site | seconds |
-| 4 | **Add to AI Grid** in the console (`combined`, a location) | as for `local-cluster`; membership also puts the site on Submariner with the hub (Placement `ai-grid-network` selects `ai-grid/enabled`; load-balancer mode, no AWS credentials), and the site enrolls with enrollment over it (`local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local:8443`) | tunnel up about 4 min; enrolled 72 s; Provisioned 11 min |
+| 4 | **Add to AI Grid** in the console (`combined`, a location) | as for `local-cluster`; the site is on Submariner with the hub (Placement `ai-grid-network` selects `ai-grid/network`, set by `make spoke-join`, and `ai-grid/enabled`; load-balancer mode, no AWS credentials), and the site enrolls with enrollment over it (`local-cluster.grid-enrollment.grid-enrollment.svc.clusterset.local:8443`) | tunnel up about 4 min; enrolled 72 s; Provisioned 11 min |
 | 5 | `bash bootstrap/50-grid-hub-info.sh`, then commit the printed `siteDigests.<site>` | the site's provider gateway pins its own certificate (until then it pins zeros and refuses every caller) | – |
 | 6 | `CONFIRM=local-cluster bash bootstrap/98-uninstall-spoke.sh local-cluster` (now `make spoke-uninstall SPOKE=local-cluster REVOKE_TENANT_KEYS=1` while `site-a` is `combined`: it revokes every tenant API key), then `SPOKES=site-a bash bootstrap/36-portal-clients.sh` | the hub leaves the grid and drops OpenShift AI; its Submariner, `maas-db` and `grid` stay | 159 s |
 | 7 | `SPOKES=site-a SPOKE_ROLES=site-a=combined SPOKE_LOCATIONS=site-a=us-east make verify` | 177 checks (221 with both spokes) | about 3 min |
@@ -178,8 +178,10 @@ probes the advertised one; and that an ingress spoke's operator enrolls and crea
 deletes the root ApplicationSet, then everything the delivery apps `ai-grid-spokes` and
 `ai-grid-policies` created (found by Argo CD's tracking annotation), then those apps. No Application
 has a resources finalizer except a remote spoke's `submariner-<site>` (leaving the network removes
-Submariner from that spoke, as Remove in the console does), every ApplicationSet preserves resources
-on deletion, and ACM Policies don't prune, so OpenShift AI, the grid and the hub services keep
+Submariner from that spoke, as Remove in the console does) and `maas-db-replica-<site>` (the replica
+of the hub's `maas-db` goes with membership; CloudNativePG's operator stays), every other
+ApplicationSet preserves resources on deletion, and the only ACM Policy that prunes is
+`maas-db-replication` (the replica's credentials), so OpenShift AI, the grid and the hub services keep
 running. Not yet run on `aio`.
 
 **Unlabel drill** (Task 8 Step 4, 2026-10-19): removing `ai-grid/enabled` from `local-cluster`
@@ -206,7 +208,40 @@ API key of the tenant, so on an `ingress` or `combined` spoke the script stops w
 the grid's objects, then the MaaS objects that carry cleanup finalizers while OpenShift AI's controllers
 still run, then OpenShift AI and MaaS, their operators, the nightly catalog and the namespaces. It keeps
 the hub's services and grid site identity (`grid` stays on `local-cluster`), the node pull secret and
-image mirror (changing them reboots nodes), cert-manager and CRDs.
+image mirror (changing them reboots nodes), cert-manager and CRDs. A remote spoke leaves the
+cross-cluster network once MaaS's cleanup is done, before OpenShift AI, the operators and the
+namespaces go (labels `ai-grid/uninstalling` and `ai-grid/network` removed).
+
+**Joined clusters on the network.** `make spoke-join` labels a remote spoke `ai-grid/network=true`, so
+it stays in Placement `ai-grid-network` without being a grid member: after the join and before the
+Add, and after Remove in the console. Such a cluster keeps what that Placement drives: the Submariner
+add-on, an admin cluster Secret in the hub's Argo CD (GitOpsCluster `ai-grid-spokes`), and namespaces
+`maas-db` and `grid-enrollment` (Policy `clusterset-namespaces`), so it can reach the hub's
+`maas-db-rw` (SCRAM logins only) and grid enrollment. That's what keeps a Removed combined spoke's
+maas-api working. Membership (`ai-grid/enabled`) alone gives a remote ingress or combined spoke the
+`maas-db` replica and its replication credentials: on Remove, Argo CD deletes the replica's Cluster
+(its app's resources finalizer) and ACM deletes the credentials (Policy `maas-db-replication`,
+`pruneObjectBehavior: DeleteAll`). The next Add rebuilds the replica from the primary.
+
+Spokes imported before `make spoke-join` set the label don't have it, and Remove still takes them off
+the network: rerun `make spoke-join SPOKE=<spoke>` (it's idempotent), or label them on the hub with
+`oc label managedcluster <spoke> ai-grid/network=true`, as was done on `site-a` on 2026-10-22.
+
+To take a Removed spoke off the network without adding it again (the default uninstall can't, because
+Remove deleted the Applications it reads), remove the label on the hub:
+`oc label managedcluster <spoke> ai-grid/network-`. Argo CD then deletes `submariner-<spoke>` and ACM
+removes Submariner from the spoke. Its software stays; the spoke's MaaS, if any, loses the hub's
+`maas-db`.
+
+`KEEP_PREREQS=1` (or `true`; any other value stops the script) removes only the AI Grid layer from a remote spoke and keeps what the cluster brings as
+prerequisites, so the console's next Add installs only that layer: the spoke stays on Submariner (label
+`ai-grid/network`), and the GPU node, NFD and the GPU operator, the nightly catalog, namespace `grid`
+with the site's identity, and its exported provider Service (its Globalnet address) all stay. The next
+Add comes back at the same Globalnet address with the same certificate, so `siteDigests` and
+`providerGlobalIPs` in git still match; no invite or commit is needed. The `maas-db` replica of an
+ingress or combined spoke doesn't stay: it's deleted, and the next Add rebuilds it. Use it only to add the same cluster
+again: the site stays trusted by the other sites until its digest leaves git. On site-b, 2026-10-22: an
+inference spoke back to Provisioned 4 minutes after the Add, model Ready at 5:21.
 
 **Rebuilds on `aio`** (2026-10-19/20):
 - Delivery rebuild: `make teardown` (26 s; every Application and Policy gone, workloads and the tenant
@@ -287,13 +322,16 @@ model plumbing (the grid-backend Service, NetworkPolicy allow-grid-provider) sta
   replica in `spokes/maas-db-replica` has no NetworkPolicy; and the hub's `maas-db-ingress` admits
   all of Globalnet `242.0.0.0/8`, so any cluster in the set can reach port 5432 (narrow it to the
   ingress spokes' Globalnet CIDRs).
-- **Removing an unreachable spoke can leave its Submariner app stuck deleting.** Remove makes Argo CD
-  delete `submariner-<spoke>`, whose resources finalizer waits for the add-on and SubmarinerConfig to
-  go; ACM's cleanup of them may never finish while the spoke can't be reached. Unstick it on the hub:
+- **Taking an unreachable spoke off the network can leave its Submariner app stuck deleting.** Leaving
+  Placement `ai-grid-network` (the uninstall, removing `ai-grid/network` by hand, or Remove of a spoke
+  without that label) makes Argo CD delete `submariner-<spoke>`, whose resources finalizer waits for
+  the add-on and SubmarinerConfig to go; ACM's cleanup of them may never finish while the spoke can't
+  be reached. Unstick it on the hub:
   `kc host delete managedclusteraddon submariner -n <spoke> --wait=false`, then, if the app still
   hangs, `kc host patch applications.argoproj.io submariner-<spoke> -n openshift-gitops --type json
-  -p '[{"op":"remove","path":"/metadata/finalizers"}]'`. Remove taking a spoke off the network is
-  designed but not yet verified on a cluster.
+  -p '[{"op":"remove","path":"/metadata/finalizers"}]'`. Leaving the network removed Submariner
+  from a reachable spoke on demo1 (site-a, 2026-10-22, Remove without the label); an unreachable one
+  is untested.
 - **GPU operators: what's still unverified.** `spokes/gpu` ran on a g6.xlarge (L4) spoke on 2026-10-21: NFD found the card, the operator built driver 580.105.08, the ClusterPolicy reached `ready`, and the node offered `nvidia.com/gpu: 1`. Not run: g6e (L40S) nodes. The DCGM ServiceMonitor is scraped only with the label `openshift.io/cluster-monitoring=true` on namespace `nvidia-gpu-operator`, which nothing sets.
 - **Metrics have one copy.** S4 runs one replica on one volume; losing the volume loses stored metrics.
 - **The MaaS gateway calls Authorino in plaintext.** The MaaS install guide turns TLS on for

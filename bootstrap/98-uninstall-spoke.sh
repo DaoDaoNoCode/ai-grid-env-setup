@@ -14,11 +14,24 @@
 # It keeps what other layers own or what would reboot nodes: the hub's services and its grid site
 # identity (namespace grid stays on local-cluster), the node pull secret and image mirror,
 # cert-manager, and CRDs. It stops and names the blocker if something hangs.
+# KEEP_PREREQS=1 (or true) removes only the AI Grid layer from a remote spoke and keeps what a cluster
+# brings as prerequisites: the cross-cluster network (Submariner stays, through label ai-grid/network),
+# the GPU node, NFD and the GPU operator (never removed), the nightly catalog, and the site's grid
+# identity and its provider's exported Service, so the next Add comes back at the same Globalnet address
+# with the same certificate and its pinned digest still matches. The maas-db replica still goes.
 source "$(dirname "$0")/lib.sh"
 s=${1:?usage: CONFIRM=<spoke> bash bootstrap/98-uninstall-spoke.sh <spoke>}
+# Anything but empty, 1 or true stops here: a typo must not run the full uninstall, which takes the spoke
+# off the network and changes its Globalnet address.
+case ${KEEP_PREREQS:-} in
+  '') keep= ;;
+  1|true) keep=1 ;;
+  *) die "KEEP_PREREQS=$KEEP_PREREQS: use 1 or true to keep the spoke's prerequisites, or leave it unset for the full uninstall" ;;
+esac
 if [[ -z ${CONFIRM:-} && -t 0 ]]; then
   read -r -p "This deletes OpenShift AI, MaaS and the grid from $s. Type the spoke name to confirm: " CONFIRM
 fi
+[[ -n $keep && $s == local-cluster ]] && die "KEEP_PREREQS is for a remote spoke; local-cluster keeps its network anyway"
 [[ ${CONFIRM:-} == "$s" ]] || die "this deletes OpenShift AI, MaaS and the grid from $s; confirm with: make spoke-uninstall SPOKE=$s CONFIRM=$s"
 # Kinds gone() is called with whose CRD may never have arrived, on a spoke whose install stopped before
 # KServe or Kuadrant: nothing of that kind exists. Uninstalling keeps CRDs, so a rerun still has them.
@@ -84,9 +97,16 @@ del_app() { # <app> [kind...]: delete what that app deployed, optionally only th
 # (label ai-grid/uninstalling, which Placement ai-grid-network also selects) until the MaaS objects are
 # gone, since their cleanup revokes API keys in the hub's maas-db through it. A run that stops keeps
 # the label, so a rerun still has the route; step 4 removes it.
+[[ -n $keep ]] && kc $HOST label managedcluster $s "$LABEL_NETWORK=true" --overwrite >/dev/null
 if [[ $s != local-cluster ]]; then
   kc $HOST label managedcluster $s "$LABEL_UNINSTALLING=true" --overwrite >/dev/null
-  trap 'rc=$?; ((rc == 0)) || log "$s keeps $LABEL_UNINSTALLING=true, and with it its route to the hub: rerun make spoke-uninstall SPOKE=$s to finish, or remove it on the hub with oc label managedcluster $s $LABEL_UNINSTALLING-"' EXIT
+  # The rerun has to match this run: without KEEP_PREREQS a rerun of a keep-mode run deletes what it kept
+  # and takes the spoke off the network. In keep mode, ai-grid/network holds the route either way.
+  if [[ -n $keep ]]; then
+    trap 'rc=$?; ((rc == 0)) || log "$s stays on the network ($LABEL_NETWORK=true) and keeps $LABEL_UNINSTALLING=true: rerun make spoke-uninstall SPOKE=$s KEEP_PREREQS=1 to finish"' EXIT
+  else
+    trap 'rc=$?; ((rc == 0)) || log "$s keeps $LABEL_UNINSTALLING=true, and with it its route to the hub: rerun make spoke-uninstall SPOKE=$s to finish, or remove it on the hub with oc label managedcluster $s $LABEL_UNINSTALLING-"' EXIT
+  fi
   trap 'exit 130' INT TERM   # so Ctrl-C also reports the label
 fi
 kc $HOST label managedcluster $s "$LABEL_ENABLED-" "$LABEL_ROLE-" >/dev/null
@@ -101,7 +121,15 @@ del_app models LLMInferenceService; gone 300 llminferenceservice facebook-opt-12
 del_app models
 
 log "the grid's objects (namespace $GRID_NS and the hub site's identity stay)"
-del_app grid-consumer; del_app grid-provider-export; del_app grid-provider
+if [[ -n $keep ]]; then
+  # The exported Service holds the site's Globalnet address: keep it and its ServiceExport. Only the
+  # provider's Deployment, ConfigMap and Service grid-provider go. Knowingly kept, besides the export:
+  # the provider app's ServiceAccount, RBAC and Secrets, and namespace grid with grid-site-identity;
+  # Argo CD adopts them again on the next Add.
+  del_app grid-consumer; del_app grid-provider Deployment ConfigMap; kc $s delete service grid-provider -n $GRID_NS --ignore-not-found >/dev/null
+else
+  del_app grid-consumer; del_app grid-provider-export; del_app grid-provider
+fi
 del_app grid-operator InferenceProvider GridSite GridNetwork AgentToolProvider
 for k in inferenceproviders gridsites gridnetworks; do
   for o in $(kc $s get $k.grid.praxis.fast -o name 2>/dev/null); do gone 120 "$o"; done
@@ -129,9 +157,13 @@ log "OpenShift AI and MaaS"
 # the DSC removes those controllers and leaves the objects (and their namespaces) stuck.
 del_app tenant
 # ExternalModel and ExternalProvider are inference.opendatahub.io; the rest are maas.opendatahub.io.
-# A failed lookup stops here rather than skip these and strand them on their finalizers.
-objs=$(kc $s get externalmodels.inference.opendatahub.io,externalproviders.inference.opendatahub.io,maassubscriptions.maas.opendatahub.io,maasauthpolicies.maas.opendatahub.io,maasmodelrefs.maas.opendatahub.io -n models-as-a-service -o name) \
-  || die "can't list the MaaS objects in models-as-a-service on $s"
+# A failed lookup stops here rather than skip these and strand them on their finalizers. A kind whose
+# CRD never arrived (an inference spoke has no MaaS) has none.
+objs=""
+for r in externalmodels.inference.opendatahub.io externalproviders.inference.opendatahub.io maassubscriptions.maas.opendatahub.io \
+  maasauthpolicies.maas.opendatahub.io maasmodelrefs.maas.opendatahub.io; do
+  objs+=" $(names $r models-as-a-service)" || die "can't list $r in models-as-a-service on $s"
+done
 for o in $objs; do gone 300 "$o" -n models-as-a-service; done
 # The AITenant goes first, while the spoke still reaches the hub's maas-db: its cleanup revokes the
 # tenant's API keys, then deletes its MaaSTenantConfig, whose cleanup needs the AITenant to resolve.
@@ -148,14 +180,24 @@ objs=$(names maastenantconfigs.maas.opendatahub.io models-as-a-service)
 for o in $objs; do gone 300 "$o" -n models-as-a-service; done
 
 # 4. The MaaS cleanup is done: a remote spoke leaves the cross-cluster network.
-if [[ $s != local-cluster ]]; then
-  log "leaving the cross-cluster network (Submariner's add-on removes its agent from $s)"
+if [[ -n $keep ]]; then
+  log "staying on the cross-cluster network ($LABEL_NETWORK)"
   kc $HOST label managedcluster $s "$LABEL_UNINSTALLING-" >/dev/null
+  trap - EXIT
+  # The maas-db replica goes even though the spoke stays on the network: it's a live copy of the hub's
+  # maas-db, and the next Add rebuilds it from the primary. Its app's resources finalizer normally
+  # deleted it already; this covers an app made before that. Namespace maas-db stays: Policy
+  # clusterset-namespaces keeps it on a networked spoke.
+  del_app maas-db-replica Cluster
+elif [[ $s != local-cluster ]]; then
+  log "leaving the cross-cluster network (Submariner's add-on removes its agent from $s)"
+  kc $HOST label managedcluster $s "$LABEL_UNINSTALLING-" "$LABEL_NETWORK-" >/dev/null
   trap - EXIT
   # Wait for the network Placement to drop the spoke first: while its decision still lists $s, the
   # ApplicationSet recreates submariner-$s, which re-applies the add-on. Once it's dropped, deleting
-  # the app prunes the add-on (its resources finalizer, as on Remove in the console); the deletes
-  # after it are for an app made before that finalizer, and are no-ops otherwise.
+  # the app prunes the add-on (its resources finalizer, as whenever a spoke leaves Placement
+  # ai-grid-network); the deletes after it are for an app made before that finalizer, and are no-ops
+  # otherwise.
   for _ in $(seq 1 24); do
     [[ " $(kc $HOST get placementdecisions -n openshift-gitops \
       -l cluster.open-cluster-management.io/placement=ai-grid-network \
@@ -179,7 +221,7 @@ kc $s delete dscinitialization --all --ignore-not-found --wait=false; for o in $
 del_app platform Gateway; del_app platform GatewayClass; del_app platform Kuadrant
 gone 300 kuadrant kuadrant -n kuadrant-system
 
-log "operators and the nightly catalog"
+if [[ -n $keep ]]; then log "operators (the nightly catalog stays)"; else log "operators and the nightly catalog"; fi
 for ns in redhat-ods-operator kuadrant-system; do
   kc $s delete subscriptions.operators.coreos.com --all -n $ns --ignore-not-found
   # Only CSVs installed here, not copies of cluster-wide operators (Argo CD, CloudNativePG).
@@ -187,7 +229,7 @@ for ns in redhat-ods-operator kuadrant-system; do
     kc $s delete csv $c -n $ns --ignore-not-found
   done
 done
-kc $s delete catalogsource rhoai-catalog-dev -n openshift-marketplace --ignore-not-found
+[[ -n $keep ]] || kc $s delete catalogsource rhoai-catalog-dev -n openshift-marketplace --ignore-not-found
 
 log "namespaces"
 nss="redhat-ods-applications redhat-ods-monitoring redhat-ods-operator redhat-ai-gateway-infra models-as-a-service kuadrant-system aigrid-models aigrid-portal-auth ai-tenants"
