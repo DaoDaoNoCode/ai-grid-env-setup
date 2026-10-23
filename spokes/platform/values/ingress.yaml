@@ -1,4 +1,15 @@
 profile: maas
+dependencies:
+  rhcl:
+    # Kuadrant fails open by default (kuadrant-operator internal/wasm/utils.go): with Limitador
+    # unreachable, a request passes and its tokens aren't counted. Fail closed, and give Authorino
+    # 2s instead of 200ms, as the MaaS install guide recommends (platform-setup.md).
+    olm:
+      config:
+        env:
+          - { name: RATELIMIT_CHECK_SERVICE_FAILURE_MODE, value: deny }
+          - { name: RATELIMIT_REPORT_SERVICE_FAILURE_MODE, value: deny }
+          - { name: AUTH_SERVICE_TIMEOUT, value: 2s }
 components:
   dashboard:
     dsc:

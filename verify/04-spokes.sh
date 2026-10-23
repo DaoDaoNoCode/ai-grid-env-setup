@@ -60,6 +60,11 @@ for s in $SPOKES; do
     # exists, and never removes it: every authenticated call then gets 500.
     uat "$s gateway reaches Authorino in plaintext" "a stale <gateway>-authn-ssl EnvoyFilter in openshift-ingress (Policy authorino-service-ca removes it): kc $s get envoyfilter -n openshift-ingress" \
       bash -c "out=\$(kc $s get envoyfilter -n openshift-ingress -o name) && ! grep -q -- '-authn-ssl\$' <<<\"\$out\""
+    # Kuadrant fails open by default: with Limitador unreachable, requests pass and their tokens go
+    # uncounted. The rhcl-operator Subscription's env (spokes/platform/values/ingress.yaml) sets the
+    # gateway's ratelimit-check and ratelimit-report services to deny, and its auth timeout to 2s.
+    uat "$s rate limits fail closed" "the gateway's ratelimit-check and -report services aren't each failureMode deny, or auth's timeout isn't 2s: the rhcl-operator Subscription lacks the env, or the Kuadrant operator hasn't rolled: kc $s get subscription rhcl-operator -n kuadrant-system -o yaml" \
+      bash -o pipefail -c "kc $s get envoyfilter kuadrant-maas-default-gateway -n openshift-ingress -o json | jq -e '[.spec.configPatches[].patch.value.typed_config.value.config.configuration.value? // empty | fromjson | .services[]] as \$s | ([\$s[] | select(.type == \"ratelimit-check\" or .type == \"ratelimit-report\") | [.type, .failureMode]] | sort) == [[\"ratelimit-check\", \"deny\"], [\"ratelimit-report\", \"deny\"]] and ([\$s[] | select(.type == \"auth\") | .timeout] == [\"2s\"])' >/dev/null"
   else
     uat "$s has no MaaS"      "inference values enabled aigateway" bash -c "! kc $s get deploy maas-api -n redhat-ai-gateway-infra"
   fi
