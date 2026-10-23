@@ -77,6 +77,14 @@ them again. Done on `demo1` on 2026-10-21.
 > console (through the backend's Tenants API) are lost with the realm, with their members and
 > attributes, and the import doesn't restore them.
 
+> **Note:** A MaaS API key keeps the groups its user had when it was created. Keys created before the
+> groups claim became `<organization id>/<group>` carry `<organization id>:<group>` and stop matching
+> their subscriptions, so their users must create new keys.
+
+After the upgrade, a user removed at their organization's identity provider keeps access in two ways:
+their refresh token works until their Keycloak session ends, and their MaaS API keys work until they're
+revoked.
+
 1. Save the organizations first, with a token from realm `master`:
    `GET /admin/realms/ai-grid/organizations?briefRepresentation=false&first=0&max=1000`, to a file. After
    step 4, create any you still need again (in the console, or `POST /admin/realms/ai-grid/organizations`

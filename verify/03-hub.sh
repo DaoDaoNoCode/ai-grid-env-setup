@@ -92,6 +92,7 @@ kc_names=$(for i in org1-idp org2-idp; do kget ai-grid/identity-provider/instanc
 kc_org1=$(kget "ai-grid/organizations?search=org1&exact=true" | jq -r '.[0].id // ""')
 kc_email=$(for r in org1-idp org2-idp ai-grid; do kget $r/users/profile; done \
   | jq -sc '[.[] | .attributes[] | select(.name == "email") | .permissions.edit]')
+kc_uap=$(kget ai-grid/users/profile | jq -r '.unmanagedAttributePolicy // ""')
 kc_gm=$(kget "ai-grid/client-scopes/$(kget ai-grid/client-scopes | jq -r '.[] | select(.name == "maas") | .id')/protocol-mappers/models" \
   | jq -c '[.[] | select(.name == "groups") | {protocolMapper, a: .config["user.attribute"], m: .config.multivalued, g: .config["aggregate.attrs"]}]')
 kc_groups=$(kget "ai-grid/groups?max=1000" | jq -c '[.[].name]')
@@ -111,7 +112,7 @@ kc_self=$(jq -nc --argjson m "$(kget "ai-grid/roles/default-roles-ai-grid/compos
   '{manage_account: ($m | index("manage-account") != null), account_console: $c, update_password: $p, reset_password: $r}')
 unset kt
 gov_org1=$(yq 'select(.kind == "MaaSSubscription") | .spec.owner.groups[0].name' spokes/tenant/governance.yaml | cut -d/ -f1)
-export kc_idps kc_flow kc_names kc_org1 kc_email kc_gm kc_groups kc_self kc_brokerpw gov_org1
+export kc_idps kc_flow kc_names kc_org1 kc_email kc_uap kc_gm kc_groups kc_self kc_brokerpw gov_org1
 uat "broker: realm ai-grid is the broker's" "realm ai-grid predates the broker (the operator never re-imports): docs/runbook.md, Upgrading realm ai-grid to the broker" \
   bash -c '[[ -n $kc_org1 && $kc_org1 == "$gov_org1" ]]'
 uat "broker: providers use the first-login flow" "an identity provider is missing or uses Keycloak's default first broker login (profile form, account linking)" \
@@ -122,6 +123,8 @@ uat "broker: usernames from the provider's subject" "a username mapper's templat
   bash -c 'jq -e ". == [\"\${ALIAS}.\${CLAIM.sub}\", \"\${ALIAS}.\${CLAIM.sub}\"]" <<<"$kc_names"'
 uat "broker: groups claim from maas_groups" "scope maas's groups mapper isn't the multivalued, aggregating maas_groups attribute mapper: rerun bootstrap/35-keycloak.sh" \
   bash -c 'jq -e ". == [{protocolMapper: \"oidc-usermodel-attribute-mapper\", a: \"maas_groups\", m: \"true\", g: \"true\"}]" <<<"$kc_gm"'
+uat "broker: only admins set maas_groups" "realm ai-grid's unmanagedAttributePolicy isn't ADMIN_EDIT, so a user could set their own maas_groups (the groups claim aggregates it): rerun bootstrap/35-keycloak.sh" \
+  bash -c '[[ $kc_uap == ADMIN_EDIT ]]'
 uat "broker: no <org id>:<group> groups left" "a group from the earlier shape is left: rerun bootstrap/35-keycloak.sh" \
   bash -c 'jq -e "map(select(contains(\":\"))) | length == 0" <<<"$kc_groups"'
 uat "broker: no self-service account or password" "realm ai-grid grants manage-account, has the account console or UPDATE_PASSWORD on, or allows password reset: rerun bootstrap/35-keycloak.sh" \
