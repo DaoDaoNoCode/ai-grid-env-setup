@@ -6,19 +6,34 @@ ns=ai-grid name=ai-grid-provider-console
 host=$(kc $HOST get route $name -n $ns -o jsonpath='{.spec.host}' 2>/dev/null)
 build_ok() { [[ $(kc $HOST get builds -n $ns -l buildconfig=$1 --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.phase}') == Complete ]]; }
 export -f build_ok; export ns name
-uat "app console"         "Argo CD app not Synced/Healthy: the remote kustomize base, or the pod (secrets from bootstrap/60-console.sh)" app console
-# The pod runs exactly the images git pins (component images/ghcr by default, images/in-cluster as fallback).
-pinned=$(oc kustomize "$(dirname "$0")/../apps/console/manifests" 2>/dev/null | yq 'select(.kind=="Deployment").spec.template.spec.containers[] | select(.name=="bff" or .name=="ai-grid-backend") | .image')
+uat "app console"         "Argo CD app not Synced/Healthy: the console chart at its pinned commit, or the pod (secrets from bootstrap/60-console.sh)" app console
+# The pod runs exactly the images git pins in apps/console/values.yaml (ghcr.io by default, the hub's
+# registry as fallback), as the chart writes them: repository[:tag][@digest].
+values="$(dirname "$0")/../apps/console/values.yaml"
+# The image as the chart renders it: repository, then :tag and @digest when set and not empty (the
+# chart's `if .tag`, `if .digest`). A missing tag key takes the chart's default, latest; a key set to
+# null drops it, as Helm's value merge does. values.yaml names each repository: the chart's default
+# repository isn't assumed here, so leaving one out fails "console runs the pinned images".
+pin() {
+  local r t d
+  r=$(yq ".images.$1.repository" "$values")
+  if [[ $(yq ".images.$1 | has(\"tag\")" "$values") == true ]]; then t=$(yq ".images.$1.tag // \"\"" "$values"); else t=latest; fi
+  d=$(yq ".images.$1.digest // \"\"" "$values")
+  echo "$r${t:+:$t}${d:+@$d}"
+}
+# Built on the hub (manifests/builds.yaml): the internal registry's exact address, not a prefix of it.
+incluster() { [[ $(yq ".images.$1.repository" "$values") == image-registry.openshift-image-registry.svc:5000/* ]]; }
+pinned=$(pin console; pin backend)
 live=$(kc $HOST get deploy $name -n $ns -o json | jq -r '.spec.template.spec.containers[] | select(.name=="bff" or .name=="ai-grid-backend") | .image')
-export pinned live
-uat "console images pinned by digest" "an image in apps/console/manifests/images lacks @sha256: a tag alone can be overwritten" \
-  bash -c '[[ $(grep -c "@sha256:" <<<"$pinned") == 2 || $pinned == *image-registry.openshift-image-registry.svc* ]]'
-uat "console runs the pinned images" "Argo CD app console not synced to git's image tags, or the render failed (oc kustomize apps/console/manifests)" \
+export -f pin incluster; export pinned live values
+# Each image on its own: one built on the hub's registry doesn't excuse the other from a digest.
+uat "console images pinned by digest" "an image in apps/console/values.yaml that isn't on the hub's registry lacks a digest: a tag alone can be overwritten" \
+  bash -c 'for i in console backend; do incluster $i || [[ $(pin $i) == *@sha256:* ]] || exit 1; done'
+uat "console runs the pinned images" "Argo CD app console not synced to git's image pins (apps/console/values.yaml), or the chart failed to render" \
   bash -c '[[ -n $pinned && $pinned == "$live" ]]'
-if grep -q '^  - ./images/in-cluster' "$(dirname "$0")/../apps/console/manifests/kustomization.yaml"; then
-  uat "console image built" "BuildConfig ai-grid-provider-console: oc logs -n $ns bc/ai-grid-provider-console" build_ok ai-grid-provider-console
-  uat "backend image built" "BuildConfig ai-grid-backend: oc logs -n $ns bc/ai-grid-backend" build_ok ai-grid-backend
-else
+incluster console && uat "console image built" "BuildConfig ai-grid-provider-console: oc logs -n $ns bc/ai-grid-provider-console" build_ok ai-grid-provider-console
+incluster backend && uat "backend image built" "BuildConfig ai-grid-backend: oc logs -n $ns bc/ai-grid-backend" build_ok ai-grid-backend
+if ! incluster console || ! incluster backend; then
   uat "console images pull" "ghcr.io package private (make it Public) or tag missing: kc host get pods -n $ns" \
     bash -c "! kc $HOST get pods -n $ns -l app.kubernetes.io/name=$name -o json | jq -e '[.items[].status.containerStatuses[]?.state.waiting.reason // empty] | map(select(test(\"ImagePull|ErrImage\"))) | length > 0' >/dev/null"
 fi
@@ -38,7 +53,7 @@ uat "clusters API answers" "got $code: 401/403 = token not accepted by kube-auth
 sa=system:serviceaccount:$ns:$name
 can() { [[ $(kc $HOST auth can-i "$@" --as=$sa 2>/dev/null) == "$want" ]]; }
 export -f can; export sa
-uat "backend may label clusters" "ClusterRole ai-grid-provider-console-backend lacks patch (apps/console/manifests)" \
+uat "backend may label clusters" "ClusterRole ai-grid-provider-console-backend lacks patch (backend.clusterWrites in apps/console/values.yaml)" \
   bash -c "want=yes can patch managedclusters.cluster.open-cluster-management.io"
 uat "backend can't create or delete clusters" "the backend's ClusterRole grew create or delete on managedclusters" \
   bash -c "want=no can create managedclusters.cluster.open-cluster-management.io && want=no can delete managedclusters.cluster.open-cluster-management.io"
@@ -47,7 +62,7 @@ uat "backend reads ai-grid-ready" "Role ai-grid-provider-console-backend in ai-g
 uat "backend can't read Policy copies" "the backend may read per-cluster Policies, whose hub templates hold rendered secrets" \
   bash -c "want=no can list policies.policy.open-cluster-management.io -A && want=no can get policies.policy.open-cluster-management.io -n local-cluster"
 # patch also reaches spec, finalizers and other labels; an admission policy limits the backend to its own keys.
-uat "backend may set only AI Grid labels" "ValidatingAdmissionPolicy ai-grid-provider-console-backend missing or not bound (apps/console/manifests)" \
+uat "backend may set only AI Grid labels" "ValidatingAdmissionPolicy ai-grid-provider-console-backend missing or not bound (backend.clusterWrites in apps/console/values.yaml)" \
   bash -c "! kc $HOST label managedcluster local-cluster ai-grid-verify/denied=true --dry-run=server --as=$sa >/dev/null 2>&1 \
     && ! kc $HOST patch managedcluster local-cluster --type=merge -p '{\"spec\":{\"leaseDurationSeconds\":61}}' --dry-run=server --as=$sa >/dev/null 2>&1 \
     && ! kc $HOST patch managedcluster local-cluster --type=merge -p '{\"metadata\":{\"ownerReferences\":[{\"apiVersion\":\"v1\",\"kind\":\"Namespace\",\"name\":\"gone\",\"uid\":\"00000000-0000-0000-0000-000000000000\"}]}}' --dry-run=server --as=$sa >/dev/null 2>&1 \

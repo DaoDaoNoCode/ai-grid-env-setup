@@ -1,0 +1,34 @@
+# This hub's values for the console chart (charts/ai-grid-provider-console in the console repository,
+# at the commit application.yaml pins; the chart's own values.yaml documents every key). Secrets
+# ai-grid-provider-console-oauth and ai-grid-backend-keycloak, and the OAuthClient, come from
+# bootstrap/60-console.sh, not git.
+
+# Add to AI Grid and Remove patch ManagedCluster labels; the backend never creates or deletes clusters.
+# This also installs the admission policy that limits it to the ai-grid/* and location labels and the
+# ai-grid/* annotations. Its read of the ai-grid-ready Policy is a Role in apps/ai-grid-policies.
+backend:
+  clusterWrites: true
+
+# Default image source: ghcr.io/ai-grid-cloud, the packages the repositories' GitHub Actions publish to
+# from main (console PR 32, backend PR 8).
+# Pin sha-<full commit> and its digest: tags can be overwritten, so the digest is what's deployed, and the
+# tag says which commit it is. Never latest or pr-<N>. Bump: take the sha-<commit> tag CI published for
+# the merge commit and its digest (skopeo inspect docker://<image>:<tag> | jq -r .Digest), change both
+# here, and move the chart's targetRevision in application.yaml and the refs in manifests/builds.yaml to
+# the same commits.
+# Fallback for work not published yet, in-cluster builds (manifests/builds.yaml): set console and
+# backend to repository image-registry.openshift-image-registry.svc:5000/ai-grid/ai-grid-provider-console
+# and .../ai-grid/ai-grid-backend, tag latest, digest "".
+images:
+  authProxy:
+    repository: quay.io/opendatahub/odh-kube-auth-proxy
+    tag: ""
+    digest: sha256:1a5f6e220362aa2077026bb7e3091c38f80aac861fa060b08045e58e783d5bc5
+  console:
+    repository: ghcr.io/ai-grid-cloud/ai-grid-provider-console
+    tag: sha-92b765c769c6c40d364d982a4213f5dd12d8dc67
+    digest: sha256:da32131e761eae9eb8d36edaaab199c5dff0ab07db5de4509a051e3d43821053
+  backend:
+    repository: ghcr.io/ai-grid-cloud/ai-grid-provider-backend
+    tag: sha-9827991a2a6c37d80455f7340a46421be1b2dbcc
+    digest: sha256:7b8842f9e1594d22a3f730e8a535e183d167954db5b38a002d001621a159f690

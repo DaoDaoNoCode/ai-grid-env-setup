@@ -1,6 +1,7 @@
-# Fallback (component images/in-cluster): images built on the hub into its internal registry, for work
-# not yet published to ghcr.io/ai-grid-cloud. Each builds a pinned commit of main (the console's matches
-# kustomization.yaml), the same commits as the ghcr pins. The nodes are linux/amd64, so the images are too.
+# Fallback (images in ../values.yaml): images built on the hub into its internal registry, for work not
+# yet published to ghcr.io/ai-grid-cloud. Each builds a pinned commit of main (the console's matches the
+# chart's in ../application.yaml), the same commits as the ghcr pins. The nodes are linux/amd64, so the
+# images are too.
 # Rebuild after bumping a ref: oc start-build <name> -n ai-grid, then
 # oc rollout restart deploy/ai-grid-provider-console -n ai-grid.
 apiVersion: image.openshift.io/v1
@@ -17,7 +18,7 @@ apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata: { name: ai-grid-provider-console }
 spec:
-  source: { git: { uri: https://github.com/ai-grid-cloud/ai-grid-provider-console.git, ref: f2b1ab137592c36076e864889d022cf482feb0f3 } }
+  source: { git: { uri: https://github.com/ai-grid-cloud/ai-grid-provider-console.git, ref: 92b765c769c6c40d364d982a4213f5dd12d8dc67 } }
   strategy: { dockerStrategy: { dockerfilePath: Dockerfile } }
   output: { to: { kind: ImageStreamTag, name: "ai-grid-provider-console:latest" } }
   resources: { requests: { cpu: "1", memory: 2Gi }, limits: { memory: 6Gi } }
