@@ -63,17 +63,124 @@ claims() { local pw; pw=$(kc $h get secret ai-grid-test-users -n $KEYCLOAK_NS -o
   printf %s "$pw" | curl -fsS -d grant_type=password -d client_id=maas-cli -d scope=openid --data-urlencode "username=$1" \
     --data-urlencode password@- https://$kchost/realms/ai-grid/protocol/openid-connect/token | jq -r .access_token | cut -d. -f2 | tr '_-' '/+' \
     | { read -r t; while (( ${#t} % 4 )); do t="$t="; done; printf '%s' "$t"; } | base64 -d 2>/dev/null; }
-export -f claims; export h kchost   # bash -c subshells see only exported names
+# one <filter> [jq options]: true only when exactly one JSON value comes in and <filter> holds for it.
+# Plain `jq -e` passes on empty input on jq 1.6, so a failed sign-in would PASS there.
+one() { local f=$1; shift; jq -se "$@" "length == 1 and (.[0] | $f)"; }
+export -f claims one; export h kchost   # bash -c subshells see only exported names
 uat "alice token: org1"      "the maas orgs mapper emits another shape (Step 2's note), or alice isn't an org1 member" \
-  bash -c "claims alice | jq -e '.\"https://redhat.com/maas/orgs\" | length == 1 and .[0].organization_name == \"org1\" and (.[0].organization_id | test(\"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$\"))'"
-uat "alice token: groups"    "the groups mapper emits full paths (/org1-group1) or alice isn't in org1-group1" \
-  bash -c "claims alice | jq -e '.groups | index(\"org1-group1\")'"
+  bash -c "claims alice | one '.\"https://redhat.com/maas/orgs\" | length == 1 and .[0].organization_name == \"org1\" and (.[0].organization_id | test(\"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$\"))'"
+uat "alice token: groups"    "scope maas's groups mapper doesn't emit maas_groups from the user's groups, or alice isn't in group1 under <org1 id>" \
+  bash -c "claims alice | one '. as \$t | .groups == [\$t[\"https://redhat.com/maas/orgs\"][0].organization_id + \"/group1\"]'"
 # The portal's sign-in proxy can't hand a refreshed session back to the browser (Authorino asks it
 # on the browser's behalf), so a token must last the whole portal session: 1 hour.
 uat "alice token lasts the portal session" "client maas-cli's access.token.lifespan isn't 3600: rerun bootstrap/36-portal-clients.sh" \
-  bash -c "claims alice | jq -e '.exp - .iat == 3600'"
+  bash -c "claims alice | one '.exp - .iat == 3600'"
 uat "dave token: no groups"  "dave was given a group; he must stay in no subscription" \
-  bash -c "claims dave | jq -e '(.groups // []) | length == 0'"
+  bash -c "claims dave | one '(.groups // []) | length == 0'"
+# The broker (ODH-ADR-MS-0007). The security fixes live only in realm config, and a realm imported
+# before the broker keeps its old shape, so read the config back through the admin API. Only the
+# results leave this shell; the admin token never reaches a subshell or argv.
+kt=$(kc $h get secret maas-keycloak-initial-admin -n $KEYCLOAK_NS -o json \
+  | jq -r '.data | (.username | @base64d), (.password | @base64d)' | { read -r u; read -r p
+    printf %s "$p" | curl -fsS -d grant_type=password -d client_id=admin-cli --data-urlencode "username=$u" \
+      --data-urlencode password@- "https://$kchost/realms/master/protocol/openid-connect/token"; } | jq -r .access_token)
+kget() { curl -fsS -H @<(printf 'Authorization: Bearer %s\n' "$kt") "https://$kchost/admin/realms/$1"; }
+kc_idps=$(kget ai-grid/identity-provider/instances)
+kc_flow=$(kget "ai-grid/authentication/flows/ai-grid%20first%20broker%20login/executions")
+kc_names=$(for i in org1-idp org2-idp; do kget ai-grid/identity-provider/instances/$i/mappers; done \
+  | jq -sc '[.[][] | select(.identityProviderMapper == "oidc-username-idp-mapper") | .config.template]')
+kc_org1=$(kget "ai-grid/organizations?search=org1&exact=true" | jq -r '.[0].id // ""')
+kc_email=$(for r in org1-idp org2-idp ai-grid; do kget $r/users/profile; done \
+  | jq -sc '[.[] | .attributes[] | select(.name == "email") | .permissions.edit]')
+kc_uap=$(kget ai-grid/users/profile | jq -r '.unmanagedAttributePolicy // ""')
+kc_gm=$(kget "ai-grid/client-scopes/$(kget ai-grid/client-scopes | jq -r '.[] | select(.name == "maas") | .id')/protocol-mappers/models" \
+  | jq -c '[.[] | select(.name == "groups") | {protocolMapper, a: .config["user.attribute"], m: .config.multivalued, g: .config["aggregate.attrs"]}]')
+kc_groups=$(kget "ai-grid/groups?max=1000" | jq -c '[.[].name]')
+# Brokered users' passwords, or -1 when any lookup fails (so the check fails closed).
+kc_brokerpw=$(users=$(kget "ai-grid/users?briefRepresentation=true&max=10000") \
+    && jq -e 'type == "array" and length < 10000' <<<"$users" >/dev/null || { echo -1; exit; }
+  n=0; for u in $(jq -r '.[].id' <<<"$users"); do
+    fed=$(kget "ai-grid/users/$u/federated-identity") || { echo -1; exit; }
+    [[ $(jq length <<<"$fed") == 0 ]] && continue
+    cr=$(kget "ai-grid/users/$u/credentials") || { echo -1; exit; }
+    n=$((n + $(jq '[.[] | select(.type == "password")] | length' <<<"$cr")))
+  done; echo $n)
+kc_self=$(jq -nc --argjson m "$(kget "ai-grid/roles/default-roles-ai-grid/composites/clients/$(kget "ai-grid/clients?clientId=account" | jq -r '.[0].id')" | jq '[.[].name]')" \
+  --argjson c "$(kget "ai-grid/clients?clientId=account-console" | jq '.[0].enabled // false')" \
+  --argjson p "$(kget ai-grid/authentication/required-actions/UPDATE_PASSWORD | jq .enabled)" \
+  --argjson r "$(kget ai-grid | jq '.resetPasswordAllowed // false')" \
+  '{manage_account: ($m | index("manage-account") != null), account_console: $c, update_password: $p, reset_password: $r}')
+unset kt
+gov_org1=$(yq 'select(.kind == "MaaSSubscription") | .spec.owner.groups[0].name' spokes/tenant/governance.yaml | cut -d/ -f1)
+export kc_idps kc_flow kc_names kc_org1 kc_email kc_uap kc_gm kc_groups kc_self kc_brokerpw gov_org1
+uat "broker: realm ai-grid is the broker's" "realm ai-grid predates the broker (the operator never re-imports): docs/runbook.md, Upgrading realm ai-grid to the broker" \
+  bash -c '[[ -n $kc_org1 && $kc_org1 == "$gov_org1" ]]'
+uat "broker: providers use the first-login flow" "an identity provider is missing or uses Keycloak's default first broker login (profile form, account linking)" \
+  bash -c 'jq -e "map(select(.alias == \"org1-idp\" or .alias == \"org2-idp\") | .firstBrokerLoginFlowAlias) == [\"ai-grid first broker login\", \"ai-grid first broker login\"]" <<<"$kc_idps"'
+uat "broker: first login only creates and onboards" "flow ai-grid first broker login gained a step (a review form or account linking would undo F1/F2)" \
+  bash -c 'jq -e "map({providerId, requirement}) == [{providerId: \"idp-create-user-if-unique\", requirement: \"REQUIRED\"}, {providerId: \"idp-add-organization-member\", requirement: \"REQUIRED\"}]" <<<"$kc_flow"'
+uat "broker: usernames from the provider's subject" "a username mapper's template isn't \${ALIAS}.\${CLAIM.sub} (the import's placeholder handling, or an edit)" \
+  bash -c 'jq -e ". == [\"\${ALIAS}.\${CLAIM.sub}\", \"\${ALIAS}.\${CLAIM.sub}\"]" <<<"$kc_names"'
+uat "broker: groups claim from maas_groups" "scope maas's groups mapper isn't the multivalued, aggregating maas_groups attribute mapper: rerun bootstrap/35-keycloak.sh" \
+  bash -c 'jq -e ". == [{protocolMapper: \"oidc-usermodel-attribute-mapper\", a: \"maas_groups\", m: \"true\", g: \"true\"}]" <<<"$kc_gm"'
+uat "broker: only admins set maas_groups" "realm ai-grid's unmanagedAttributePolicy isn't ADMIN_EDIT, so a user could set their own maas_groups (the groups claim aggregates it): rerun bootstrap/35-keycloak.sh" \
+  bash -c '[[ $kc_uap == ADMIN_EDIT ]]'
+uat "broker: no <org id>:<group> groups left" "a group from the earlier shape is left: rerun bootstrap/35-keycloak.sh" \
+  bash -c 'jq -e "map(select(contains(\":\"))) | length == 0" <<<"$kc_groups"'
+uat "broker: no self-service account or password" "realm ai-grid grants manage-account, has the account console or UPDATE_PASSWORD on, or allows password reset: rerun bootstrap/35-keycloak.sh" \
+  bash -c 'jq -e ". == {manage_account: false, account_console: false, update_password: false, reset_password: false}" <<<"$kc_self"'
+uat "broker: no brokered user has a password" "a user with an identity provider link has a local password in realm ai-grid (-1: a lookup failed): rerun bootstrap/35-keycloak.sh" \
+  bash -c '[[ $kc_brokerpw == 0 ]]'
+uat "realms: email is admin-only" "bootstrap/35-keycloak.sh didn't set the user profile of org1-idp, org2-idp or ai-grid" \
+  bash -c 'jq -e ". == [[\"admin\"], [\"admin\"], [\"admin\"]]" <<<"$kc_email"'
+for r in org1-idp org2-idp; do
+  uat "tenant realm $r answers" "KeycloakRealmImport $r not Done: Secret ai-grid-tenant-idps missing when it ran?" \
+    curl -fsS -o /dev/null "https://$kchost/realms/$r/.well-known/openid-configuration"
+done
+# A brokered browser sign-in, as the portal does it (maas-cli with PKCE, stopping at the portal callback):
+# org1-idp's alice comes back as org1-idp.<subject>, with org1's claim and group. With an email address,
+# it starts at the broker's username page and must be sent on to <idp> by the address's domain; without
+# one, kc_idp_hint picks <idp> directly.
+broker_claims() { local idp=$1 u=$2 email=${3:-} j loc code ver chal action hint=() act=()
+  j=$(mktemp); ver=$(openssl rand -hex 32); chal=$(printf %s "$ver" | openssl dgst -sha256 -binary | base64 | tr '+/' '-_' | tr -d '=')
+  # follow <curl args>: follows up to 10 redirects by hand, stops at the portal callback and prints it (or
+  # nothing when a page is served, left in $j.page).
+  follow() { local loc url n=0; loc=$(curl -sS --connect-timeout 5 --max-time 20 -c $j -b $j -o $j.page -w '%{redirect_url}' "$@")
+    while [[ -n $loc && $loc != "$cb"* ]] && (( n++ < 10 )); do url=$loc
+      loc=$(curl -sS --connect-timeout 5 --max-time 20 -c $j -b $j -o $j.page -w '%{redirect_url}' "$url"); done
+    [[ $loc == "$cb"* ]] && printf %s "$loc"; }
+  form() { tr '\n' ' ' <$j.page | grep -o 'id="kc-form-login"[^>]*' | grep -o 'action="[^"]*"' | sed 's/action="//; s/"$//; s/&amp;/\&/g'; }
+  [[ -n $email ]] || hint=(--data-urlencode "kc_idp_hint=$idp")
+  act=(); [[ -z ${KC_ACTION:-} ]] || act=(--data-urlencode "kc_action=$KC_ACTION")
+  follow -G "https://$kchost/realms/ai-grid/protocol/openid-connect/auth" --data-urlencode client_id=maas-cli --data-urlencode response_type=code \
+    --data-urlencode scope=openid --data-urlencode "redirect_uri=$cb" --data-urlencode code_challenge=$chal \
+    --data-urlencode code_challenge_method=S256 "${hint[@]}" "${act[@]}" >/dev/null
+  [[ -z $email ]] || printf 'username=%s' "$(jq -nr --arg e "$email" '$e | @uri')" | follow --data-binary @- "$(form)" >/dev/null
+  action=$(form)
+  # The login form must be the organization's provider's, not the broker's own.
+  [[ $action == "https://$kchost/realms/$idp/"* ]] || { rm -f $j $j.page; return 1; }
+  loc=$(printf 'username=%s&password=%s' "$u" "$(kc $h get secret ai-grid-test-users -n $KEYCLOAK_NS -o jsonpath="{.data.$idp-$u}" | base64 -d | jq -sRr @uri)" \
+    | follow --data-binary @- "$action")
+  # With KC_ACTION, print where the sign-in came back to (nothing when it stopped at a page, such as the
+  # action's form).
+  [[ -z ${KC_ACTION:-} ]] || { rm -f $j $j.page; printf %s "$loc"; return; }
+  code=$(grep -o '[?&]code=[^&]*' <<<"$loc" | head -1 | cut -d= -f2); rm -f $j $j.page
+  [[ -n $code ]] && curl -fsS --connect-timeout 5 --max-time 20 -d grant_type=authorization_code -d client_id=maas-cli --data-urlencode "code=$code" --data-urlencode "redirect_uri=$cb" \
+    -d code_verifier=$ver "https://$kchost/realms/ai-grid/protocol/openid-connect/token" | jq -r .access_token | cut -d. -f2 | tr '_-' '/+' \
+    | { read -r t; while (( ${#t} % 4 )); do t="$t="; done; printf '%s' "$t"; } | base64 -d 2>/dev/null; }
+# The first portal spoke whose apps domain the hub knows (no spoke kubeconfig needed); none, no sign-in check.
+ps=$(portal_spokes)
+for s in $ps; do d=$(apps_domain "$s"); [[ -n $d ]] && { cb="https://maas.$d/oauth2/callback"; break; }; done
+export -f broker_claims; export cb
+brokered="(.preferred_username | startswith(\"org1-idp.\")) and .groups == [\$o + \"/group1\"] and .\"https://redhat.com/maas/orgs\"[0].organization_id == \$o"
+[[ -n ${cb:-} ]] && uat "brokered sign-in: org1-idp alice" "the org1-idp login form, the broker's mappers, or maas-cli's callback for the first ingress spoke" \
+  bash -c "broker_claims org1-idp alice | one '$brokered' --arg o $gov_org1"
+[[ -n ${cb:-} ]] && uat "brokered sign-in by email domain: org1" "alice@org1.example.com didn't reach org1-idp: organization org1's domain, or org1-idp's kc.org.domain and redirect-on-email-match config" \
+  bash -c "broker_claims org1-idp alice alice@org1.example.com | one '$brokered' --arg o $gov_org1"
+# A brokered user asking to set a password (kc_action, as the account console does) must come straight
+# back with kc_action_status=error, not stop at an update-password form.
+[[ -n ${cb:-} ]] && uat "brokered user can't set a password" "the sign-in stopped at a form or the action ran: UPDATE_PASSWORD is on in realm ai-grid; rerun bootstrap/35-keycloak.sh" \
+  bash -c "KC_ACTION=UPDATE_PASSWORD broker_claims org1-idp alice | grep -q '^$cb.*[?&]kc_action_status=error'"
 # Keycloak answers 400 both for an unknown client and for a bad redirect URI; only the page text differs.
 client_gone() { curl -s "https://$kchost/realms/ai-grid/protocol/openid-connect/auth?client_id=$1&response_type=code&scope=openid&redirect_uri=https%3A%2F%2Fx" | grep -q 'Client not found'; }
 export -f client_gone; export kchost
@@ -82,7 +189,6 @@ uat "no maas-portal client"   "the confidential client from an earlier portal de
 # maas-cli is a public client, so it must take exactly the portal callbacks of portal_spokes (lib.sh),
 # as 36-portal-clients.sh writes them: a departed spoke's leftover one could receive a tenant's sign-in
 # code once its domain is reused. Reading the client needs Keycloak's admin login, as that script does.
-ps=$(portal_spokes)
 want=$(for s in $ps; do echo "https://maas.$(apps_domain "$s")/oauth2/callback"; done | jq -Rsc 'split("\n") | map(select(. != "")) | sort')
 redirect_uris() { local au ap tok
   au=$(kc $h get secret maas-keycloak-initial-admin -n $KEYCLOAK_NS -o jsonpath='{.data.username}' | base64 -d)

@@ -79,9 +79,11 @@ oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.hos
 
 - In realm `ai-grid`:
   - **Organizations:** `org1` and `org2`, and their members.
-  - **Groups:** `org1-group1` and `org2-group1`.
+  - **Groups:** one group per organization, named with its ID, each holding `group1`. On `group1`'s
+    **Attributes** tab, `maas_groups` is `<org1 id>/group1`: the token form MaaS reads (ODH-ADR-MS-0007).
   - **Users:** `alice`, `dave`, and `bob`. On `alice`'s **Attributes** tab, find `maas_orgs`.
-  - **Client scopes > maas > Mappers:** `username`, `groups`, and the organization mapper.
+  - **Client scopes > maas > Mappers:** `username`, `groups` (the user's groups' `maas_groups` values), and
+    the organization mapper.
   - **Clients > maas-cli:** a public client. Its **Valid redirect URIs** list
     `https://maas.APPS_DOMAIN/oauth2/callback` for each ingress spoke.
 - The discovery document at `https://$KC/realms/ai-grid/.well-known/openid-configuration`.
@@ -93,7 +95,7 @@ trusts this one realm, and subscriptions match the groups. Clusters don't belong
 so the realm lives on the hub.
 
 **Expect:** the discovery document's `issuer` equals `tenantIssuer` in ConfigMap
-`ai-grid-hub-info`. `alice` is a member of `org1` and in group `org1-group1`. `dave` is in `org1`
+`ai-grid-hub-info`. `alice` is a member of `org1` and in group `group1` under `<org1 id>`. `dave` is in `org1`
 with no group. The demo order's own Keycloak, the one behind the cluster's SSO login, is unchanged.
 Broken looks like an issuer with `http://` or a different host, which breaks every MaaS token check
 later.
@@ -106,6 +108,30 @@ oc get configmap ai-grid-hub-info -n ai-grid-policies -o jsonpath='{.data.tenant
 ```
 
 The two lines must match character for character.
+
+**Brokered sign-in.** Each organization signs in through its own identity provider: realms `org1-idp`
+and `org2-idp` stand in for a customer's own, and realm `ai-grid` brokers them. Open:
+
+- In realm `ai-grid`, **Identity providers:** `org1-idp` and `org2-idp`, each linked to its
+  organization (**Organizations > org1 > Identity providers**), with **First login flow** set to
+  `ai-grid first broker login` (**Authentication**: only *Create User If Unique* and *Organization
+  Member Onboard*, both Required).
+- Secret `ai-grid-tenant-idps` in namespace `keycloak`: Keycloak's public URL and the two broker client
+  secrets (don't print it).
+
+Then sign in to a portal (`https://maas.APPS_DOMAIN/`) as `alice@org1.example.com`. Keycloak sees the
+domain and sends you to `org1-idp`'s login page. Sign in as `alice` with the password from:
+
+```bash
+oc extract secret/ai-grid-test-users -n keycloak --keys=org1-idp-alice --to=-
+```
+
+**Expect:** the portal lists org1's models. In realm `ai-grid`, a new user `org1-idp.<id>` (the
+provider's alias and its fixed subject) is a **Managed** member of `org1` and in group
+`<org1 id>/group1`. `dave@org1.example.com` (key `org1-idp-dave`) signs in but sees no models, and
+`bob@org2.example.com` goes to `org2-idp`. Plain `alice`, `dave` and `bob` are realm `ai-grid`'s own
+users, for the CLI's password grant; their email addresses are outside the organizations' domains on
+purpose, so a brokered user never matches one.
 
 **Questions:**
 
@@ -251,7 +277,7 @@ is running (decision D3).
 **What it is:** the model runs once, on a serving spoke. MaaS never calls it directly: it calls the
 grid's consumer gateway (the `ExternalProvider`), and the grid picks a site whose provider gateway
 forwards to the model. The subscription and auth policy `opt-125m-org1` say who can call the model
-and how much: Keycloak group `org1-group1` at 100 tokens a minute. Models are per spoke in git;
+and how much: Keycloak group `group1` of `org1` (token form `<org1 id>/group1`) at 100 tokens a minute. Models are per spoke in git;
 tenant intent is one copy delivered to every ingress spoke. The model and subscription are a test
 fixture that the provider console replaces.
 
@@ -343,7 +369,7 @@ who the user is; MaaS checks the token, the subscription, and the rate limit; th
 the site's gateway forwards to vLLM. With one site the grid's choice is trivial. The same path picks
 between sites once there are two (Tasks 11 and 12).
 
-**Expect:** the token's `iss` equals the discovery document's issuer, `groups` is `[org1-group1]`,
+**Expect:** the token's `iss` equals the discovery document's issuer, `groups` is `["<org1 id>/group1"]`,
 and the organization claim has one `org1` entry. The model list shows `facebook-opt-125m` with a URL
 under `$MAAS`. The call returns `200` with a few words of text; opt-125m is a tiny model, so the text
 is rarely sensible. Each hop logs one line. Broken looks like a `401` (issuer mismatch) or an empty
@@ -370,7 +396,7 @@ When you're done, clear the variables: `unset TOKEN KEY`.
 
 1. MaaS. His token is valid, but no subscription names any of his groups, because he has none.
 2. At the consumer gateway, which chooses between sites' provider gateways.
-3. Add him to `org1-group1` in Keycloak, or add a subscription and auth policy for a group he's in.
+3. Add him to `group1` under `<org1 id>` in Keycloak, or add a subscription and auth policy for a group he's in.
 
 </details>
 
