@@ -44,7 +44,7 @@ fi
 # The realm import runs once, so apply brute-force protection (as in realm-ai-grid.yaml) to an
 # existing realm too.
 api "$base" | jq '.bruteForceProtected = true | .permanentLockout = false | .failureFactor = 10
-  | .waitIncrementSeconds = 60 | .maxFailureWaitSeconds = 900' | api -X PUT "$base" -d @- >/dev/null
+  | .waitIncrementSeconds = 60 | .maxFailureWaitSeconds = 900 | .resetPasswordAllowed = false' | api -X PUT "$base" -d @- >/dev/null
 # Groups and the groups claim, as in realm-ai-grid.yaml, for a realm imported before them (the import runs
 # once). Each organization's group <organization id> holds leaf groups that carry maas_groups
 # (`<organization id>/<group>`), which scope maas emits as the groups claim. A leaf group named
@@ -102,6 +102,33 @@ api "$base/users/profile" | jq '.unmanagedAttributePolicy = "ADMIN_EDIT"' | api 
 for r in org1-idp org2-idp ai-grid; do
   api "https://$kchost/admin/realms/$r/users/profile" | jq '(.attributes[] | select(.name == "email") | .permissions.edit) = ["admin"]' \
     | api -X PUT "https://$kchost/admin/realms/$r/users/profile" -d @- >/dev/null
+done
+# No self-service account or password in the broker realm. A brokered user who set a local password could
+# then use maas-cli's password grant and never sign in through their organization's provider again, so
+# removing them there would not reach Keycloak (the provider's mappers run only on a brokered sign-in).
+# Users lose manage-account (account linking, credentials, profile edits), the account console is off,
+# and UPDATE_PASSWORD is disabled: a kc_action=UPDATE_PASSWORD from any client is then skipped
+# (kc_action_status=error). Admins still set the local test users' passwords. Applied here, not in the
+# realm import: the import can't drop a default role, and listing requiredActions replaces them all.
+acct=$(api "$base/clients?clientId=account" | jq -r '.[0].id // empty')
+[[ -n $acct ]] || die "client account not found in realm $realm"
+manage=$(api "$base/roles/default-roles-$realm/composites/clients/$acct" | jq -c 'map(select(.name == "manage-account"))')
+[[ $manage == "[]" ]] || api -X DELETE "$base/roles/default-roles-$realm/composites" -d "$manage" >/dev/null
+acon=$(api "$base/clients?clientId=account-console" | jq -r '.[0].id // empty')
+[[ -z $acon ]] || api "$base/clients/$acon" | jq '.enabled = false' | api -X PUT "$base/clients/$acon" -d @- >/dev/null
+api "$base/authentication/required-actions/UPDATE_PASSWORD" | jq '.enabled = false' \
+  | api -X PUT "$base/authentication/required-actions/UPDATE_PASSWORD" -d @- >/dev/null
+# A brokered user (one with an identity provider link) who set a password before this keeps it: delete it.
+# Every lookup fails closed: a $(...) failure doesn't stop the script, so each is checked.
+users=$(api "$base/users?briefRepresentation=true&max=10000") && jq -e 'type == "array" and length < 10000' <<<"$users" >/dev/null \
+  || die "can't list the users of realm $realm (or it has 10000 or more: page this cleanup)"
+for u in $(jq -r '.[].id' <<<"$users"); do
+  fed=$(api "$base/users/$u/federated-identity") || die "can't read user $u's identity provider links in realm $realm"
+  [[ $(jq length <<<"$fed") == 0 ]] && continue
+  creds=$(api "$base/users/$u/credentials") || die "can't read user $u's credentials in realm $realm"
+  for c in $(jq -r '.[] | select(.type == "password") | .id' <<<"$creds"); do
+    api -X DELETE "$base/users/$u/credentials/$c" >/dev/null
+  done
 done
 # The realm import runs once, and listing clientScopes replaced Keycloak's built-in ones, so make
 # sure scope maas carries sub, email, and preferred_username (MaaS's user name; email for the portal's
