@@ -32,6 +32,8 @@ spec:
   templatePatch: |
     spec:
       syncPolicy: {{ .spec.syncPolicy | toJson }}
+      # helmGit and chart are exclusive: an app with both would get source twice
+      # (hack/check-manifests.sh refuses it).
       {{- if hasKey .spec "helmGit" }}
       source:
         helm:

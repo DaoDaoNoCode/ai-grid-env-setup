@@ -10,18 +10,30 @@ uat "app console"         "Argo CD app not Synced/Healthy: the console chart at 
 # The pod runs exactly the images git pins in apps/console/values.yaml (ghcr.io by default, the hub's
 # registry as fallback), as the chart writes them: repository[:tag][@digest].
 values="$(dirname "$0")/../apps/console/values.yaml"
-pin() { yq ".images.$1 | .repository + (select(.tag != \"\") | \":\" + .tag // \"\") + (select(.digest != \"\") | \"@\" + .digest // \"\")" "$values"; }
+# The image as the chart renders it: repository, then :tag and @digest when set and not empty (the
+# chart's `if .tag`, `if .digest`). A missing tag key takes the chart's default, latest; a key set to
+# null drops it, as Helm's value merge does. values.yaml names each repository: the chart's default
+# repository isn't assumed here, so leaving one out fails "console runs the pinned images".
+pin() {
+  local r t d
+  r=$(yq ".images.$1.repository" "$values")
+  if [[ $(yq ".images.$1 | has(\"tag\")" "$values") == true ]]; then t=$(yq ".images.$1.tag // \"\"" "$values"); else t=latest; fi
+  d=$(yq ".images.$1.digest // \"\"" "$values")
+  echo "$r${t:+:$t}${d:+@$d}"
+}
+# Built on the hub (manifests/builds.yaml): the internal registry's exact address, not a prefix of it.
+incluster() { [[ $(yq ".images.$1.repository" "$values") == image-registry.openshift-image-registry.svc:5000/* ]]; }
 pinned=$(pin console; pin backend)
 live=$(kc $HOST get deploy $name -n $ns -o json | jq -r '.spec.template.spec.containers[] | select(.name=="bff" or .name=="ai-grid-backend") | .image')
-export pinned live
-uat "console images pinned by digest" "an image in apps/console/values.yaml lacks a digest: a tag alone can be overwritten" \
-  bash -c '[[ $(grep -c "@sha256:" <<<"$pinned") == 2 || $pinned == *image-registry.openshift-image-registry.svc* ]]'
+export -f pin incluster; export pinned live values
+# Each image on its own: one built on the hub's registry doesn't excuse the other from a digest.
+uat "console images pinned by digest" "an image in apps/console/values.yaml that isn't on the hub's registry lacks a digest: a tag alone can be overwritten" \
+  bash -c 'for i in console backend; do incluster $i || [[ $(pin $i) == *@sha256:* ]] || exit 1; done'
 uat "console runs the pinned images" "Argo CD app console not synced to git's image pins (apps/console/values.yaml), or the chart failed to render" \
   bash -c '[[ -n $pinned && $pinned == "$live" ]]'
-if [[ $(yq .images.console.repository "$values") == image-registry.openshift-image-registry.svc* ]]; then
-  uat "console image built" "BuildConfig ai-grid-provider-console: oc logs -n $ns bc/ai-grid-provider-console" build_ok ai-grid-provider-console
-  uat "backend image built" "BuildConfig ai-grid-backend: oc logs -n $ns bc/ai-grid-backend" build_ok ai-grid-backend
-else
+incluster console && uat "console image built" "BuildConfig ai-grid-provider-console: oc logs -n $ns bc/ai-grid-provider-console" build_ok ai-grid-provider-console
+incluster backend && uat "backend image built" "BuildConfig ai-grid-backend: oc logs -n $ns bc/ai-grid-backend" build_ok ai-grid-backend
+if ! incluster console || ! incluster backend; then
   uat "console images pull" "ghcr.io package private (make it Public) or tag missing: kc host get pods -n $ns" \
     bash -c "! kc $HOST get pods -n $ns -l app.kubernetes.io/name=$name -o json | jq -e '[.items[].status.containerStatuses[]?.state.waiting.reason // empty] | map(select(test(\"ImagePull|ErrImage\"))) | length > 0' >/dev/null"
 fi
