@@ -39,8 +39,14 @@ if ! incluster console || ! incluster backend; then
 fi
 uat "console pod ready"   "secrets missing (bootstrap/60-console.sh), or the BFF's /readyz can't ping the backend" \
   kc $HOST rollout status deploy/$name -n $ns --timeout=5s
+# The backend authenticates no one (out of the MVP's scope, ai-grid-provider-backend#3) and acts as
+# the console's ServiceAccount, so it must be reachable only through kube-auth-proxy and the BFF.
 uat "backend REST on loopback" "the backend's REST gateway listens on the pod network without authentication" \
   bash -c "kc $HOST get deploy $name -n $ns -o json | jq -e '.spec.template.spec.containers[] | select(.name==\"ai-grid-backend\") | .args | index(\"--http-listen-address=127.0.0.1:8081\")'"
+uat "backend API on loopback" "the backend's gRPC/Connect port listens on the pod network without authentication" \
+  bash -c "kc $HOST get deploy $name -n $ns -o json | jq -e '.spec.template.spec.containers[] | select(.name==\"ai-grid-backend\") | .args | index(\"--listen-address=127.0.0.1:9090\")'"
+uat "only the proxy is exposed" "Service $name exposes a port other than kube-auth-proxy's https: the BFF and the backend must stay behind the proxy" \
+  bash -c "[[ \$(kc $HOST get svc $name -n $ns -o json | jq -c '[.spec.ports[].targetPort]') == '[\"https\"]' ]]"
 uat "sign-in goes to OpenShift" "OAuthClient $name or Secret $name-oauth missing (bootstrap/60-console.sh)" \
   bash -c "curl -s -o /dev/null -w '%{redirect_url}' https://$host/ | grep -q '/oauth2/start\|oauth-openshift\|/oauth/authorize'"
 uat "BFF reaches backend" "/readyz pings the backend over loopback; the backend container isn't serving" \
@@ -49,7 +55,7 @@ uat "BFF reaches backend" "/readyz pings the backend over loopback; the backend 
 code=$(curl -s -o /dev/null -w '%{http_code}' -H @<(printf 'Authorization: Bearer %s\n' "$(kc $HOST whoami -t)") "https://$host/api/v1/clusters")
 uat "clusters API answers" "got $code: 401/403 = token not accepted by kube-auth-proxy or not a provider admin; 501 = console and backend images don't match" \
   bash -c "[[ $code == 200 ]]"
-# The backend's own rights: label clusters, read the one root Policy, nothing more.
+# The backend's own rights: label clusters, read the one root Policy and ACM Search, nothing more.
 sa=system:serviceaccount:$ns:$name
 can() { [[ $(kc $HOST auth can-i "$@" --as=$sa 2>/dev/null) == "$want" ]]; }
 export -f can; export sa
@@ -59,6 +65,8 @@ uat "backend can't create or delete clusters" "the backend's ClusterRole grew cr
   bash -c "want=no can create managedclusters.cluster.open-cluster-management.io && want=no can delete managedclusters.cluster.open-cluster-management.io"
 uat "backend reads ai-grid-ready" "Role ai-grid-provider-console-backend in ai-grid-policies missing (apps/ai-grid-policies)" \
   bash -c "want=yes can get policies.policy.open-cluster-management.io/ai-grid-ready -n ai-grid-policies"
+uat "backend reads ACM Search" "ClusterRoleBinding ai-grid-provider-console-search missing (apps/console/manifests/search-rbac.yaml): clusters show no GPU details" \
+  bash -c "want=yes can get searches.search.open-cluster-management.io/allManagedData"
 uat "backend can't read Policy copies" "the backend may read per-cluster Policies, whose hub templates hold rendered secrets" \
   bash -c "want=no can list policies.policy.open-cluster-management.io -A && want=no can get policies.policy.open-cluster-management.io -n local-cluster"
 # patch also reaches spec, finalizers and other labels; an admission policy limits the backend to its own keys.
